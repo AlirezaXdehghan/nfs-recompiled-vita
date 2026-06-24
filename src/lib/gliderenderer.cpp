@@ -35,6 +35,14 @@ static const bool s_vitaDirectToScreen = true;
 static const bool s_vitaDebugSolidColor = true;
 static const bool s_vitaDebugImmediateMode = true;
 static const bool s_vitaDebugImmediateTexture = true;
+/* The immediate-mode path always MODULATEd vertex color by the bound texture,
+ * ignoring the Glide color-combine factor. Flat-shaded geometry (e.g. the
+ * minimap track ribbon, drawn with GR_COMBINE_OTHER_CONSTANT and colorFactor 0)
+ * would then get multiplied by whatever texture happened to be bound — often a
+ * transparent texel — and vanish. When this is on, a drawcall whose colorCombine
+ * is ~0 is drawn with pure vertex color (texturing off), matching the shader's
+ * mix(v_color, v_color*tex, colorCombine). Set false to restore old behaviour. */
+static const bool s_vitaRespectColorCombine = true;
 static const char g_glFragmentShaderDebug[] = ""
 "#version 400\n"
 "in vec3 v_texCoord;"
@@ -297,13 +305,6 @@ GlideRenderer::GlideRenderer(Renderer* renderer)
     glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
     GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    SDL_Log("[glide-diag] FBO status=0x%04x (complete=0x%04x) program=%u tex=%u atlas=%u %ux%u",
-            unsigned(fbStatus), unsigned(GL_FRAMEBUFFER_COMPLETE),
-            unsigned(m_shaderProgram), unsigned(m_renderer->m_texture), unsigned(m_atlas),
-            unsigned(m_renderer->m_width), unsigned(m_renderer->m_height));
-    SDL_Log("[glide-diag] attribs pos=%d color=%d tex=%d combine=%d atlas=%d  u_transform=%d  glErr=0x%04x",
-            m_attributes[0], m_attributes[1], m_attributes[2], m_attributes[3], m_attributes[4],
-            m_transform, unsigned(glGetError()));
 
     m_renderer->clearCurrent();
 }
@@ -472,33 +473,12 @@ void GlideRenderer::swap()
             flush();
             int vpX, vpY, vpW, vpH;
             m_renderer->getLetterboxViewport(vpX, vpY, vpW, vpH);
-            SDL_Log("[glide-diag] viewport x=%d y=%d w=%d h=%d", vpX, vpY, vpW, vpH);
             glViewport(vpX, vpY, vpW, vpH);
 #if defined(__vita__)
             if (s_vitaDebugImmediateMode)
             {
                 glDisable(GL_SCISSOR_TEST);
                 glUseProgram(0);
-                if (s_vitaDebugImmediateTexture)
-                {
-                    glEnable(GL_TEXTURE_2D);
-                    glBindTexture(GL_TEXTURE_2D, m_atlas);
-                    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-                    if (m_alphaTestEnabled || m_chromakeyEnabled)
-                    {
-                        glEnable(GL_ALPHA_TEST);
-                        glAlphaFunc(GL_GREATER, float(m_alphaTestReference) / 255.0f);
-                    }
-                    else
-                    {
-                        glDisable(GL_ALPHA_TEST);
-                    }
-                }
-                else
-                {
-                    glDisable(GL_TEXTURE_2D);
-                    glDisable(GL_ALPHA_TEST);
-                }
                 glDepthFunc(GL_LEQUAL);
                 glMatrixMode(GL_PROJECTION);
                 glLoadIdentity();
@@ -522,11 +502,44 @@ void GlideRenderer::swap()
                     {
                         glBlendFunc(GL_SRC_ALPHA, GL_ONE);
                     }
+                    /* Honour the Glide combine: the texture contributes only when
+                     * colorCombine OR alphaCombine is non-zero. Flat geometry
+                     * (both ~0, e.g. the minimap track ribbon) is drawn as pure
+                     * vertex color with texturing off, instead of MODULATEing by a
+                     * possibly-transparent bound texel. Glyphs/icons that take
+                     * their colour from the vertex but their alpha mask from the
+                     * texture (colorCombine 0, alphaCombine 1) keep the texture.
+                     * setColorFactor/setAlphaFactor flush on change so these are
+                     * uniform across the drawcall. */
+                    const bool drawTextured = s_vitaDebugImmediateTexture
+                        && (!s_vitaRespectColorCombine
+                            || m_vertices[first].colorCombine >= 0.5f
+                            || m_vertices[first].alphaCombine >= 0.5f);
+                    if (drawTextured)
+                    {
+                        glEnable(GL_TEXTURE_2D);
+                        glBindTexture(GL_TEXTURE_2D, m_atlas);
+                        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+                        if (m_alphaTestEnabled || m_chromakeyEnabled)
+                        {
+                            glEnable(GL_ALPHA_TEST);
+                            glAlphaFunc(GL_GREATER, float(m_alphaTestReference) / 255.0f);
+                        }
+                        else
+                        {
+                            glDisable(GL_ALPHA_TEST);
+                        }
+                    }
+                    else
+                    {
+                        glDisable(GL_TEXTURE_2D);
+                        glDisable(GL_ALPHA_TEST);
+                    }
                     glBegin(GL_TRIANGLES);
                     for (x86::reg32 i = first; i < it->lastTriangle; ++i)
                     {
                         const x86::reg32 color = m_vertices[i].color;
-                        if (s_vitaDebugImmediateTexture)
+                        if (drawTextured)
                         {
                             const float invOow = m_vertices[i].u2 != 0.0f ? (1.0f / m_vertices[i].u2) : 0.0f;
                             float texelS = m_vertices[i].u * invOow * m_vertices[i].width / 256.0f;
@@ -752,11 +765,18 @@ void GlideRenderer::setAlphaBlendDst(AlphaBlend method)
 
 void GlideRenderer::setColorFactor(float colorFactor)
 {
+    /* Flush on change so each drawcall has a single color-combine value; the
+     * immediate-mode path decides texturing per drawcall from the first vertex
+     * (see swap()), which is only correct if the drawcall is combine-uniform. */
+    if (colorFactor != m_colorFactor)
+        flush();
     m_colorFactor = colorFactor;
 }
 
 void GlideRenderer::setAlphaFactor(float alphaFactor)
 {
+    if (alphaFactor != m_alphaFactor)
+        flush();
     m_alphaFactor = alphaFactor;
 }
 

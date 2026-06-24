@@ -212,7 +212,7 @@ static const GrChromakeyMode_t GR_CHROMAKEY_DISABLE     = 0x0;
 static const GrChromakeyMode_t GR_CHROMAKEY_ENABLE      = 0x1;
 
 typedef x86::reg32 GrLock_t;
-//static const GrLock_t GR_LFB_READ_ONLY  = 0x00;
+static const GrLock_t GR_LFB_READ_ONLY  = 0x00;
 static const GrLock_t GR_LFB_WRITE_ONLY = 0x01;
 //static const GrLock_t GR_LFB_IDLE       = 0x00;
 //static const GrLock_t GR_LFB_NOIDLE     = 0x10;
@@ -772,7 +772,13 @@ static x86::reg32 grLfbLock(WinApplication* app, x86::CPU& cpu, GrLock_t type, G
     NFS2_USE(app);
     NFS2_USE(cpu);
     NFS2_USE(pixelPipeline);
-    if (type == GR_LFB_WRITE_ONLY)
+    /* NFS3 read-modify-writes the framebuffer (the loading progress bar and the
+     * in-game minimap composite over existing pixels), so it locks for BOTH read
+     * (type 0x0) and write (type 0x1). Both map to the same video-memory buffer;
+     * returning failure + an unset lfbPtr for the read lock corrupted those
+     * operations and blanked the screen. */
+    const GrLock_t access = type & 0x01;
+    if (access == GR_LFB_WRITE_ONLY || access == GR_LFB_READ_ONLY)
     {
         info->strideInBytes = s_renderer->getWidth() * 2;
         //info->size = s_renderer->getWidth() * s_renderer->getHeight() * 2;
@@ -791,9 +797,16 @@ static x86::reg32 grLfbUnlock(WinApplication* app, x86::CPU& cpu, GrLock_t type,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    if (type == GR_LFB_WRITE_ONLY)
+    const GrLock_t access = type & 0x01;
+    if (access == GR_LFB_WRITE_ONLY)
     {
+        /* A write completed: flush the software framebuffer to screen. */
         s_renderer->unlock(buffer);
+        return 1;
+    }
+    else if (access == GR_LFB_READ_ONLY)
+    {
+        /* Nothing was modified, so nothing to present. */
         return 1;
     }
     else
