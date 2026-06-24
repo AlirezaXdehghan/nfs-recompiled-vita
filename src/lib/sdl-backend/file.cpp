@@ -39,6 +39,9 @@ static int fnmatch(const char* pattern, const char* str, int /*flags*/)
 # define O_BINARY 0
 #endif
 #include <algorithm>
+#include <cstring>
+#include <map>
+#include <mutex>
 #include <SDL3/SDL.h>
 
 
@@ -48,6 +51,27 @@ namespace win32
 static std::string s_currentDirectory = "c:\\nfs2se\\";
 static std::string s_dataDirectory = "./";
 static std::string s_cdDirectory = "./";
+
+/* Sentinel fd for RAM-backed scratch files (see m_ram). */
+static const int RAM_FD = -3;
+
+/* Shared in-memory backing for RAM files, keyed by resolved lowercase path, so
+ * the data survives close and is shared between the game's write and read
+ * handles. Guarded because File::write releases the execution lock around I/O. */
+static std::map<std::string, std::shared_ptr<std::vector<uint8_t>>> s_ramFiles;
+static std::mutex s_ramFilesLock;
+
+/* NFS2 decompresses each track's music into GameData/TmpTrk/*.mus and reads it
+ * straight back. On Vita those are thousands of tiny unbuffered flash writes
+ * that serialize the whole emulator (~6fps). Keep them in RAM instead. The
+ * path here is already lowercased with '/' separators. main.trk is excluded on
+ * purpose: it is memory-mapped, which still needs a real file on disk. */
+static bool isRamBacked(const std::string& path)
+{
+    return path.find("tmptrk/") != std::string::npos
+        && path.size() >= 4
+        && path.compare(path.size() - 4, 4, ".mus") == 0;
+}
 
 /* Sentinel fd for the Windows NUL device (the bit-bucket). NFS3 opens "nul"
  * (e.g. when selecting a car in the menu); reads return EOF and writes are
@@ -268,19 +292,22 @@ bool FileEnumerator::findNext(WIN32_FIND_DATAA *data)
 File::File(int file, const char* name)
     :   m_file(_dup(file))
     ,   m_filename(name)
+    ,   m_ramPos(0)
 {
 }
 
 File::File(const File& other)
-    :   m_file(_open(other.m_filename.c_str(), O_RDONLY|O_BINARY, 0664))
+    :   m_file(other.m_ram ? RAM_FD : _open(other.m_filename.c_str(), O_RDONLY|O_BINARY, 0664))
     ,   m_filename(other.m_filename)
+    ,   m_ram(other.m_ram)
+    ,   m_ramPos(0)
 {
-    SDL_Log("[file] opening file %s for Map", m_filename.c_str());
 }
 
 File::File(const char* path, x86::reg32 mode, x86::reg32 flags, x86::reg32 creationFlags)
     :   m_file()
     ,   m_filename(moveToRoot(path))
+    ,   m_ramPos(0)
 {
     NFS2_USE(flags);
     if (isNullDevice(path))
@@ -297,6 +324,22 @@ File::File(const char* path, x86::reg32 mode, x86::reg32 flags, x86::reg32 creat
     for (std::string::iterator it = m_filename.begin(); it != m_filename.end(); ++it)
         if (*it == '\\') *it = '/';
     m_filename = resolvePathCaseInsensitive(m_filename);
+
+    if (isRamBacked(m_filename))
+    {
+        /* RAM-backed scratch file: no flash I/O at all. */
+        std::lock_guard<std::mutex> g(s_ramFilesLock);
+        std::shared_ptr<std::vector<uint8_t>>& slot = s_ramFiles[m_filename];
+        if (!slot)
+            slot = std::make_shared<std::vector<uint8_t>>();
+        if (creationFlags == CREATE_ALWAYS || creationFlags == TRUNCATE_EXISTING || creationFlags == CREATE_NEW)
+            slot->clear();
+        m_ram = slot;
+        m_ramPos = 0;
+        m_file = RAM_FD;
+        return;
+    }
+
     int openFlags = O_BINARY;
     switch(mode)
     {
@@ -347,23 +390,29 @@ File::File(const char* path, x86::reg32 mode, x86::reg32 flags, x86::reg32 creat
     {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[file] unable to open file %s", m_filename.c_str());
     }
-    else
-    {
-        SDL_Log("[file] opening file %s", m_filename.c_str());
-    }
 }
 
 File::~File()
 {
-    if (m_file != -1 && m_file != NULL_DEVICE_FD)
+    /* RAM-backed files keep their data in s_ramFiles across close; nothing to
+     * release here (the shared_ptr just drops a reference). */
+    if (!m_ram && m_file != -1 && m_file != NULL_DEVICE_FD)
     {
         _close(m_file);
-        SDL_Log("[file] closing file %s", m_filename.c_str());
     }
 }
 
 x86::reg32 File::seek(x86::reg32 mode, x86::sreg32 offset)
 {
+    if (m_ram)
+    {
+        std::lock_guard<std::mutex> g(s_ramFilesLock);
+        long base = mode == 0 ? 0 : mode == 1 ? long(m_ramPos) : long(m_ram->size());
+        long np = base + offset;
+        if (np < 0) np = 0;
+        m_ramPos = size_t(np);
+        return x86::reg32(m_ramPos);
+    }
     if (m_file == NULL_DEVICE_FD)
         return 0;
     int seekMode = 0;
@@ -390,6 +439,17 @@ x86::reg32 File::read(void* buffer, x86::reg32 max, x86::reg32* totalRead)
 {
     NFS2_USE(buffer);
     NFS2_USE(max);
+    if (m_ram)
+    {
+        std::lock_guard<std::mutex> g(s_ramFilesLock);
+        size_t avail = m_ram->size() > m_ramPos ? m_ram->size() - m_ramPos : 0;
+        size_t n = avail < max ? avail : max;
+        if (n)
+            memcpy(buffer, m_ram->data() + m_ramPos, n);
+        m_ramPos += n;
+        *totalRead = x86::reg32(n);
+        return 1;
+    }
     if (m_file == NULL_DEVICE_FD)
     {
         *totalRead = 0; /* NUL device is always at EOF */
@@ -401,6 +461,17 @@ x86::reg32 File::read(void* buffer, x86::reg32 max, x86::reg32* totalRead)
 
 x86::reg32 File::write(const void* buffer, x86::reg32 max, x86::reg32* totalWritten)
 {
+    if (m_ram)
+    {
+        std::lock_guard<std::mutex> g(s_ramFilesLock);
+        if (m_ramPos + max > m_ram->size())
+            m_ram->resize(m_ramPos + max);
+        if (max)
+            memcpy(m_ram->data() + m_ramPos, buffer, max);
+        m_ramPos += max;
+        *totalWritten = max;
+        return 1;
+    }
     if (m_file == NULL_DEVICE_FD)
     {
         *totalWritten = max; /* NUL device discards all writes */
@@ -412,6 +483,12 @@ x86::reg32 File::write(const void* buffer, x86::reg32 max, x86::reg32* totalWrit
 
 x86::reg32 File::truncate()
 {
+    if (m_ram)
+    {
+        std::lock_guard<std::mutex> g(s_ramFilesLock);
+        m_ram->resize(m_ramPos);
+        return 1;
+    }
     if (m_file == NULL_DEVICE_FD)
         return 1;
     SDL_Log("[file] Truncating file %s", m_filename.c_str());
@@ -420,6 +497,11 @@ x86::reg32 File::truncate()
 
 x86::reg32 File::size() const
 {
+    if (m_ram)
+    {
+        std::lock_guard<std::mutex> g(s_ramFilesLock);
+        return x86::reg32(m_ram->size());
+    }
     if (m_file == NULL_DEVICE_FD)
         return 0;
     struct stat buffer;
@@ -460,6 +542,12 @@ x86::reg32 File::remove(const char *filename)
     for (std::string::iterator it = f.begin(); it != f.end(); ++it)
         if (*it == '\\') *it = '/';
     f = resolvePathCaseInsensitive(f);
+    if (isRamBacked(f))
+    {
+        std::lock_guard<std::mutex> g(s_ramFilesLock);
+        s_ramFiles.erase(f);
+        return 1;
+    }
     if (_unlink(f.c_str()) != 0)
     {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[file] unable to delete file %s", filename);

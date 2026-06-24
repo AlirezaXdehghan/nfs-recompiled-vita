@@ -53,9 +53,7 @@ Uint32 Timer::timerCallback(void* data, SDL_TimerID /*timerID*/, Uint32 interval
     NFS2_USE(interval);
     Timer* t = (Timer*)data;
     x86::CPU cpu;
-    //SDL_Log("Timer callback: %d", t->m_id);
     t->m_app->runThread(cpu, t->m_callback, t->m_parameter);
-    //SDL_Log("Timer callback done: %d", t->m_id);
     return 0;
 }
 

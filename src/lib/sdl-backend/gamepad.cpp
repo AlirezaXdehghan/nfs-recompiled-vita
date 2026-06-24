@@ -1,4 +1,5 @@
 #include <lib/gamepad.h>
+#include <winapi/user32.h>
 #include <SDL3/SDL.h>
 #include <cstring>
 #if defined(__vita__)
@@ -64,6 +65,7 @@ void Gamepad::updateKeys()
         bool prev = (s_prevButtons  & m.mask) != 0;
         if (now == prev)
             continue;
+        user32::SetVirtualKeyState(m.key, now);
         SDL_Event kevent;
         memset(&kevent, 0, sizeof(kevent));
         kevent.type = now ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
@@ -71,8 +73,6 @@ void Gamepad::updateKeys()
         kevent.key.scancode = m.sc;
         kevent.key.down = now;
         SDL_PushEvent(&kevent);
-        SDL_Log("[gamepad] sceCtrl mask=0x%08x %s -> key=0x%x",
-                m.mask, now ? "down" : "up", unsigned(m.key));
     }
     s_prevButtons = pad.buttons;
     return;
@@ -215,4 +215,3 @@ GamepadState Gamepad::getState() const
 
 
 }
-

@@ -104,8 +104,6 @@ HANDLE CreateFileA(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(dwShareMode);
     NFS2_USE(lpSecurityAttributes);
     NFS2_USE(hTemplateFile);
-    SDL_Log("[kernel32] CreateFileA %s access=0x%08x disposition=%u flags=0x%08x",
-            lpFileName ? lpFileName : "(null)", unsigned(dwDesiredAccess), unsigned(dwCreationDisposition), unsigned(dwFlagsAndAttributes));
     win32::File* file = new win32::File(lpFileName, dwDesiredAccess, dwFlagsAndAttributes, dwCreationDisposition);
     if (*file)
     {
@@ -1195,7 +1193,12 @@ DWORD SleepEx(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(cpu);
     NFS2_USE(bAlertable);
     app->unlockContext(cpu);
+#if defined(__vita__)
+    if (dwMilliseconds > 1)
+        win32::Thread::sleep(dwMilliseconds);
+#else
     win32::Thread::sleep(dwMilliseconds);
+#endif
     app->lockContext(cpu);
     return 0;
 }
@@ -1359,10 +1362,24 @@ DWORD WaitForSingleObject(WinApplication* app, x86::CPU& cpu,
                           HANDLE hHandle, DWORD dwMilliseconds)
 {
     NFS2_USE(cpu);
-    app->unlockContext(cpu);
     GenericResource* r = app->getResource(hHandle);
     Event* event = dynamic_cast<win32::Event*>(r);
-    DWORD result = DWORD(win32::Event::wait(cpu, &event, &event + 1, 0, x86::sreg32(dwMilliseconds)));
+    Thread* thread = dynamic_cast<win32::Thread*>(r);
+    app->unlockContext(cpu);
+    DWORD result;
+    if (event)
+    {
+        result = DWORD(win32::Event::wait(cpu, &event, &event + 1, 0, x86::sreg32(dwMilliseconds)));
+    }
+    else if (thread)
+    {
+        result = DWORD(thread->wait(cpu, dwMilliseconds));
+    }
+    else
+    {
+        NFS2_ASSERT(false);
+        result = 0xffffffff;
+    }
     app->lockContext(cpu);
     return result;
 }
@@ -1413,7 +1430,6 @@ BOOL WriteFile(WinApplication* app, x86::CPU& cpu,
     }
     else
     {
-        SDL_Log("[kernel32] WriteFile %s bytes=%u", f->getFilename().c_str(), unsigned(nNumberOfBytesToWrite));
         app->unlockContext(cpu);
         x86::reg32 result = f->write(lpBuffer, nNumberOfBytesToWrite, lpNumberOfBytesWritten);
         app->lockContext(cpu);

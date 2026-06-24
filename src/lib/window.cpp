@@ -1,5 +1,7 @@
 #include <lib/window.h>
 #include <lib/thread.h>
+#include <lib/gamepad.h>
+#include <winapi/user32.h>
 #include <SDL3/SDL.h>
 #include <cstring>
 
@@ -33,6 +35,72 @@ static const x86::reg32 WM_USER = 0x0400;
 static const x86::reg32 WM_USER_END = 0xC000;
 static WindowClass* s_class;
 
+/* Translate an SDL keycode to the Win32 virtual-key code the game expects.
+ * Mirrors the wParam mapping in Window::getMessage so that the keyboard-state
+ * tracking (GetAsyncKeyState/GetKeyState) and the WM_* message stream agree. */
+static x86::reg32 sdlKeyToVk(SDL_Keycode sym)
+{
+    switch (sym)
+    {
+        case SDLK_LSHIFT:
+        case SDLK_RSHIFT:     return 0x10;
+        case SDLK_PAGEDOWN:   return 0x21;
+        case SDLK_PAGEUP:     return 0x22;
+        case SDLK_END:        return 0x23;
+        case SDLK_HOME:       return 0x24;
+        case SDLK_LEFT:       return 0x25;
+        case SDLK_UP:         return 0x26;
+        case SDLK_RIGHT:      return 0x27;
+        case SDLK_DOWN:       return 0x28;
+        case SDLK_INSERT:     return 0x2D;
+        case SDLK_DELETE:     return 0x2E;
+        case SDLK_KP_0:       return 0x60;
+        case SDLK_KP_1:       return 0x61;
+        case SDLK_KP_2:       return 0x62;
+        case SDLK_KP_3:       return 0x63;
+        case SDLK_KP_4:       return 0x64;
+        case SDLK_KP_5:       return 0x65;
+        case SDLK_KP_6:       return 0x66;
+        case SDLK_KP_7:       return 0x67;
+        case SDLK_KP_8:       return 0x68;
+        case SDLK_KP_9:       return 0x69;
+        case SDLK_KP_MULTIPLY:return 0x6A;
+        case SDLK_KP_PLUS:    return 0x6B;
+        case SDLK_KP_MINUS:   return 0x6D;
+        case SDLK_KP_PERIOD:  return 0x6E;
+        case SDLK_KP_DIVIDE:  return 0x6F;
+        case SDLK_EQUALS:     return 0xBB;
+        case SDLK_MINUS:      return 0xBD;
+        case SDLK_PERIOD:     return 0xBE;
+        case SDLK_GRAVE:      return 0xC0;
+        case SDLK_APOSTROPHE: return 0xDE;
+        case SDLK_KP_ENTER:   return DWORD(SDLK_RETURN);
+        default:
+            if (sym >= SDLK_A && sym <= SDLK_Z)
+                return sym & ~0x20;
+            if (!(sym & 0x40000000))
+                return DWORD(sym);
+            return 0;
+    }
+}
+
+/* SDL event watch: keeps the virtual-key state live independent of whoever is
+ * draining the Win32 message queue. The game's in-menu/in-game loop polls
+ * GetAsyncKeyState without pumping GetMessageA, so without this the key state
+ * would only advance while messages are dispatched and a key would stick down
+ * after the first press. The watch fires synchronously when an event is pushed
+ * (incl. the gamepad-synthesised keys from Gamepad::updateKeys) or pumped. */
+static bool SDLCALL keyStateWatch(void* /*userdata*/, SDL_Event* event)
+{
+    if (event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_KEY_UP)
+    {
+        x86::reg32 vk = sdlKeyToVk(event->key.key);
+        if (vk)
+            win32::user32::SetVirtualKeyState(vk, event->type == SDL_EVENT_KEY_DOWN);
+    }
+    return true; /* leave the event in the queue for the message pump */
+}
+
 static const x86::reg8 s_scancodeTable[100] =
 {
     0x00, 0x00, 0x00, 0x00, 0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21,
@@ -61,6 +129,12 @@ WindowClass::~WindowClass()
 Window::Window(const char *title, int /*x*/, int /*y*/, int w, int h)
     :   m_window(nullptr)
 {
+    static bool s_keyWatchAdded = false;
+    if (!s_keyWatchAdded)
+    {
+        SDL_AddEventWatch(&keyStateWatch, nullptr);
+        s_keyWatchAdded = true;
+    }
     SDL_Log("[window] SDL_CreateWindow %dx%d", w, h);
     m_window = SDL_CreateWindow(title, w, h,
 #if defined(__vita__)
@@ -91,7 +165,17 @@ x86::reg32 Window::getMessage(const x86::CPU& cpu, MSG* result, Window *window, 
     SDL_Event event;
     for (;;)
     {
-        if (SDL_WaitEvent(&event))
+        if (cpu.terminate)
+            return 0;
+        /* Sample the controller here as well, not only from Renderer::present().
+         * On Vita the pad is read inside present() (i.e. only while rendering).
+         * When the game blocks in GetMessage waiting for input *without*
+         * rendering (e.g. after a menu selection), present() never runs, so the
+         * pad would never be polled and SDL_WaitEvent would never be woken ->
+         * soft freeze. Polling here with a timed wait keeps input flowing and
+         * breaks that deadlock. */
+        win32::Gamepad::updateKeys();
+        if (SDL_WaitEventTimeout(&event, 16))
         {
             if (cpu.terminate)
                 return 0;
@@ -263,6 +347,8 @@ x86::reg32 Window::getMessage(const x86::CPU& cpu, MSG* result, Window *window, 
 
                         if (sym >= SDLK_A && sym <= SDLK_Z)
                             result->wParam = sym & ~0x20;
+
+                        win32::user32::SetVirtualKeyState(result->wParam, event.type == SDL_EVENT_KEY_DOWN);
                     }
                     return 1;
                 case SDL_EVENT_JOYSTICK_BUTTON_DOWN:

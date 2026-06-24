@@ -22,6 +22,7 @@ public:
     }
 
     void resume();
+    x86::reg32 wait(x86::CPU& cpu, x86::reg32 milliseconds);
     void terminate();
     x86::reg32 threadId() const;
     static void sleep(x86::reg32 milliseconds);
@@ -43,6 +44,7 @@ private:
     };
 
     SDL_AtomicInt*  m_refCount;
+    SDL_AtomicInt*  m_finished;
     SDL_Semaphore*  m_semaphore;
     Data            m_data;
     SDL_Thread*     m_thread;
@@ -52,4 +54,3 @@ private:
 }
 
 #endif
-

@@ -3,6 +3,7 @@
 #include <lib/gamepad.h>
 #include <x86.h>
 #include <SDL3/SDL.h>
+#include <cstring>
 
 namespace win32 { namespace winmm
 {
@@ -68,8 +69,10 @@ MMRESULT timeSetEvent(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(cpu);
     NFS2_ASSERT(fuEvent == 0);
     NFS2_USE(uResolution);
-    SDL_Log("[winmm] timeSetEvent delay=%u resolution=%u callback=0x%08x user=0x%08x event=%u",
-            unsigned(uDelay), unsigned(uResolution), unsigned(lpTimeProc), unsigned(dwUser), unsigned(fuEvent));
+#if defined(__vita__)
+    if (strstr(app->getAppNameRaw(), "nfs2se") && uDelay < 16)
+        uDelay = 16;
+#endif
     if (!cpu.terminate)
     {
         win32::Timer* timer = new win32::Timer(uDelay, app, lpTimeProc, dwUser);

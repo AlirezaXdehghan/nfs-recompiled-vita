@@ -1,5 +1,6 @@
 #include "nfs2se.h"
 #include <lib/thread.h>
+#include <SDL3/SDL.h>
 
 namespace nfs2se
 {
@@ -2222,6 +2223,20 @@ void Application::sub_493580(WinApplication* app, x86::CPU& cpu)
     cpu.esp += 4;
     return;
 L_0x0049358d:
+#if defined(__vita__)
+    {
+        static Uint64 s_lastAudioWake = 0;
+        const Uint64 now = SDL_GetTicks();
+        if (now - s_lastAudioWake < 32)
+        {
+            cpu.edx = app->getMemory<x86::reg32>(cpu.esp);
+            cpu.esp += 4;
+            cpu.esp += 4;
+            return;
+        }
+        s_lastAudioWake = now;
+    }
+#endif
     // 0049358d  b8d0835200             -mov eax, 0x5283d0
     cpu.eax = 5407696 /*0x5283d0*/;
     // 00493592  e849b9feff             -call 0x47eee0

@@ -60,14 +60,17 @@ void AudioDevice::stop(AudioBuffer* buffer)
 void AudioDevice::audioCallback22050(void* userdata, SDL_AudioStream* stream, int additional_amount, int /*total_amount*/)
 {
     AudioDevice* audio = reinterpret_cast<AudioDevice*>(userdata);
-    std::vector<x86::reg8> buffer(additional_amount, 0);
+    if (audio->m_mixBuffer.size() < size_t(additional_amount))
+        audio->m_mixBuffer.resize(additional_amount);
+    x86::reg8* buffer = audio->m_mixBuffer.data();
+    memset(buffer, 0, additional_amount);
     for (std::vector<AudioBuffer*>::iterator it = audio->m_playingBuffers.begin();
         it != audio->m_playingBuffers.end();
         ++it)
     {
-        (*it)->audioCallback22050(buffer.data(), additional_amount);
+        (*it)->audioCallback22050(buffer, additional_amount);
     }
-    SDL_PutAudioStreamData(stream, buffer.data(), additional_amount);
+    SDL_PutAudioStreamData(stream, buffer, additional_amount);
     return;
 }
 

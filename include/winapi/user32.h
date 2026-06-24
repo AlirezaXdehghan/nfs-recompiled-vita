@@ -31,6 +31,8 @@ typedef HANDLE HSZ;
 struct CONVCONTEXT;
 typedef CONVCONTEXT* PCONVCONTEXT;
 
+void SetVirtualKeyState(x86::reg32 vKey, bool down);
+
 BOOL AdjustWindowRect(WinApplication* app, x86::CPU& cpu,
                       LPRECT lpRect, DWORD  dwStyle, BOOL   bMenu);
 HDC BeginPaint(WinApplication* app, x86::CPU& cpu,

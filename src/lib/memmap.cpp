@@ -35,9 +35,10 @@ static void* alloc(x86::reg32 size)
     /* malloc draws from the (large) newlib heap configured in vita_runtime.c.
      * Zero-init so the simulated address space starts clean, matching the
      * MAP_ANONYMOUS / MEM_COMMIT zero-fill guarantee on the other platforms. */
-    SDL_Log("[memmap] calloc(%u bytes = %u MB)", (unsigned)size, (unsigned)(size >> 20));
+    /* NOTE: do NOT SDL_Log here - alloc() is called twice per timer fire
+     * (~200/s via runThread), and per-call disk logging on Vita starves the
+     * whole app (this was the menu "10fps" stall). */
     void* p = calloc(1, size);
-    SDL_Log("[memmap] calloc result: %s", p ? "OK" : "FAILED (null)");
     NFS2_ASSERT(p != nullptr);
     return p;
 #elif defined(_WIN32)

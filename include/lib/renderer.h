@@ -4,6 +4,7 @@
 #include <lib/winapp.h>
 #include <winapi/types.h>
 #include <lib/memmap.h>
+#include <cstdint>
 
 struct SDL_Renderer;
 struct SDL_Texture;
@@ -60,6 +61,9 @@ private:
     x86::reg32      m_height;
     x86::reg32      m_depth;
     x86::reg32      m_colorPalette[256];
+    unsigned char*  m_screenData;      // persistent RGBA conversion buffer (reused per frame)
+    x86::reg32      m_screenDataSize;
+    uint64_t        m_lastPresentUsec;
 };
 
 }

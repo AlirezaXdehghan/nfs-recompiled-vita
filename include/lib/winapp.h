@@ -182,13 +182,6 @@ public:
         const auto it = m_methods.find(address-0x400000);
         NFS2_ASSERT(it != m_methods.end());
         const win32::Method& m = it->second;
-        static int s_dynamicLogCount = 0;
-        if (s_dynamicLogCount < 2000)
-        {
-            SDL_Log("[dispatch] call addr=0x%08x name=%s esp=0x%08x eax=0x%08x ecx=0x%08x edx=0x%08x",
-                unsigned(address), m.name.c_str(), unsigned(cpu.esp), unsigned(cpu.eax), unsigned(cpu.ecx), unsigned(cpu.edx));
-            ++s_dynamicLogCount;
-        }
         m(this, cpu);
     }
 

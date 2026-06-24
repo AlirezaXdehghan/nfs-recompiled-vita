@@ -473,7 +473,7 @@ x86::reg32 IDirectDraw2::init(WinApplication *app, x86::reg32 memblockIndex, x86
     dm8bpp->ddpfPixelFormat.dwBBitMask = 0;
     dm8bpp->ddpfPixelFormat.dwRGBAlphaBitMask = 0;
     dm8bpp->ddsCaps.dwCaps = 0;
-    g_dm8bpp800 = memblockIndex + 24 * sizeof(x86::reg32);
+    g_dm8bpp800 = memblockIndex + 24 * sizeof(x86::reg32) + 2*sizeof(DDSURFACEDESC);
 
     dm16bpp = (DDSURFACEDESC*)(vtable + 24 + 3*sizeof(DDSURFACEDESC)/4);
     dm16bpp->dwSize = sizeof(DDSURFACEDESC);
@@ -503,7 +503,7 @@ x86::reg32 IDirectDraw2::init(WinApplication *app, x86::reg32 memblockIndex, x86
     dm16bpp->ddpfPixelFormat.dwBBitMask = 0x001f;
     dm16bpp->ddpfPixelFormat.dwRGBAlphaBitMask = 0;
     dm16bpp->ddsCaps.dwCaps = 0;
-    g_dm16bpp800 = memblockIndex + 24 * sizeof(x86::reg32) + sizeof(DDSURFACEDESC);
+    g_dm16bpp800 = memblockIndex + 24 * sizeof(x86::reg32) + 3*sizeof(DDSURFACEDESC);
 
     g_currentDisplayMode = g_dm16bpp800;
     return 24 * sizeof(x86::reg32) + 4*sizeof(DDSURFACEDESC);

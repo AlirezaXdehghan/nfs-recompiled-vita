@@ -3,6 +3,7 @@
 #include <lib/winapp.h>
 #include <lib/memmap.h>
 #include <SDL3/SDL.h>
+#include <vector>
 
 
 namespace win32
@@ -26,6 +27,7 @@ private:
 private:
     SDL_AudioStream*            m_stream;
     std::vector<AudioBuffer*>   m_playingBuffers;
+    std::vector<x86::reg8>      m_mixBuffer;
 };
 
 class AudioBuffer : public GenericResource

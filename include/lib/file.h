@@ -5,6 +5,8 @@
 #include <winapi/types.h>
 #include <string>
 #include <vector>
+#include <memory>
+#include <cstdint>
 
 
 namespace win32
@@ -87,6 +89,11 @@ public:
 private:
     int m_file;
     std::string m_filename;
+    // When non-null, this file is backed by RAM instead of flash (NFS2's
+    // GameData/TmpTrk/*.mus music scratch files). The buffer is shared across
+    // all handles to the same path and persists across open/close.
+    std::shared_ptr<std::vector<uint8_t>> m_ram;
+    size_t m_ramPos;
 };
 
 }

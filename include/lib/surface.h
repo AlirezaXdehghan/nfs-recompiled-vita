@@ -20,6 +20,7 @@ public:
     Renderer* getRenderer();
     x86::reg32 lock();
     void unlock();
+    x86::reg32 getSurfaceIndex() const { return m_surfaceIndex; }
 
 private:
     Renderer*   m_renderer;

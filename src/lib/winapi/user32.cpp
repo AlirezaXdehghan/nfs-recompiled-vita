@@ -7,6 +7,34 @@
 namespace win32 { namespace user32
 {
 
+static bool s_virtualKeyDown[256];
+static bool s_virtualKeyPressed[256];
+
+void SetVirtualKeyState(x86::reg32 vKey, bool down)
+{
+    if (vKey >= 256)
+        return;
+
+    if (down && !s_virtualKeyDown[vKey])
+        s_virtualKeyPressed[vKey] = true;
+    s_virtualKeyDown[vKey] = down;
+}
+
+static SHORT getVirtualKeyState(int vKey, bool consumePressed)
+{
+    if (vKey < 0 || vKey >= 256)
+        return 0;
+
+    SHORT state = s_virtualKeyDown[vKey] ? SHORT(0x8000) : 0;
+    if (s_virtualKeyPressed[vKey])
+    {
+        state |= 0x0001;
+        if (consumePressed)
+            s_virtualKeyPressed[vKey] = false;
+    }
+    return state;
+}
+
 BOOL AdjustWindowRect(WinApplication* app, x86::CPU& cpu,
                       LPRECT lpRect, DWORD dwStyle, BOOL bMenu)
 {
@@ -247,9 +275,7 @@ SHORT GetAsyncKeyState(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(vKey);
-    //NFS2_ASSERT(false);
-    return 0;
+    return getVirtualKeyState(vKey, true);
 }
 
 BOOL GetClientRect(WinApplication* app, x86::CPU& cpu,
@@ -278,8 +304,7 @@ SHORT GetKeyState(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(nVirtKey);
-    return 0;
+    return getVirtualKeyState(nVirtKey, false);
 }
 
 int GetKeyboardType(WinApplication* app, x86::CPU& cpu,
@@ -583,10 +608,9 @@ void keybd_event(WinApplication* app, x86::CPU& cpu,
     //NFS2_ASSERT(false);
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(bVk);
     NFS2_USE(bScan);
-    NFS2_USE(dwFlags);
     NFS2_USE(dwExtraInfo);
+    SetVirtualKeyState(bVk, (dwFlags & 0x0002) == 0);
 }
 
 void wsprintfA(WinApplication* app, x86::CPU& cpu)

@@ -39,6 +39,9 @@ Renderer::Renderer(WinApplication* application, Window *window)
     ,   m_currentBuffer(0)
     ,   m_depth(16)
     ,   m_colorPalette()
+    ,   m_screenData(nullptr)
+    ,   m_screenDataSize(0)
+    ,   m_lastPresentUsec(0)
 {
     setCurrent();
 #if defined(__vita__)
@@ -85,6 +88,7 @@ Renderer::~Renderer()
 #if !defined(__vita__)
     SDL_GL_DestroyContext(static_cast<SDL_GLContext>(m_renderer));
 #endif
+    free(m_screenData);
 }
 
 void Renderer::setCurrent()
@@ -107,10 +111,20 @@ void Renderer::setVideoMode(x86::reg32 w, x86::reg32 h, x86::reg32 bpp)
     m_width = w;
     m_height = h;
     m_depth = bpp;
+    x86::reg32 needed = w * h * 4;
+    if (needed > m_screenDataSize)
+    {
+        free(m_screenData);
+        m_screenData = reinterpret_cast<unsigned char*>(malloc(needed));
+        m_screenDataSize = needed;
+    }
     setCurrent();
     glBindTexture(GL_TEXTURE_2D, m_texture);
 #if defined(__vita__)
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    if (m_depth == 16)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_width, m_height, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, nullptr);
+    else
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 #else
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_width, m_height, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, nullptr);
 #endif
@@ -138,9 +152,6 @@ void Renderer::present()
 {
     Gamepad::updateKeys();
 #if defined(__vita__)
-    static int s_frameCount = 0;
-    if ((s_frameCount++ % 30) == 0)
-        SDL_Log("[renderer] present() frame %d", s_frameCount);
     glUseProgram(0);
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_DEPTH_TEST);
@@ -205,6 +216,7 @@ void Renderer::present()
 #else
     SDL_GL_SwapWindow(m_window->m_window);
 #endif
+    m_lastPresentUsec = SDL_GetTicksNS() / 1000;
 }
 
 #if defined(__vita__)
@@ -238,6 +250,10 @@ void Renderer::finishFrame()
 }
 #endif
 
+// Converts the game's software front buffer into m_texture. Upload only; the
+// caller is responsible for present(). Uses a persistent buffer (no per-frame
+// malloc) and 5/6-bit->8-bit lookup tables (no per-pixel divides) so the blit
+// is cheap enough for the Vita CPU.
 void Renderer::update()
 {
     glBindTexture(GL_TEXTURE_2D, m_texture);
@@ -245,20 +261,8 @@ void Renderer::update()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     if (m_depth == 16)
     {
-        //MemMap::fillDebugGraph(&m_application->getMemory<x86::reg16>(getFrontBuffer()) + m_width*2);
 #if defined(__vita__)
-        const x86::reg16* srcData = &m_application->getMemory<x86::reg16>(getFrontBuffer());
-        x86::reg8* screenData = reinterpret_cast<x86::reg8*>(malloc(m_width * m_height * 4));
-        for (x86::reg32 i = 0; i < m_width*m_height; ++i)
-        {
-            const x86::reg16 pixel = srcData[i];
-            screenData[i * 4 + 0] = x86::reg8(((pixel >> 11) & 0x1f) * 255 / 31);
-            screenData[i * 4 + 1] = x86::reg8(((pixel >> 5) & 0x3f) * 255 / 63);
-            screenData[i * 4 + 2] = x86::reg8((pixel & 0x1f) * 255 / 31);
-            screenData[i * 4 + 3] = 0xff;
-        }
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_width, m_height, GL_RGBA, GL_UNSIGNED_BYTE, screenData);
-        free(screenData);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_width, m_height, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, &m_application->getMemory<x86::reg16>(getFrontBuffer()));
 #else
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_width, m_height, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, &m_application->getMemory<x86::reg16>(getFrontBuffer()));
 #endif
@@ -267,7 +271,7 @@ void Renderer::update()
     {
         x86::reg8* srcData = &m_application->getMemory<x86::reg8>(getFrontBuffer());
 #if defined(__vita__)
-        x86::reg8* screenData = reinterpret_cast<x86::reg8*>(malloc(m_width * m_height * 4));
+        unsigned char* screenData = m_screenData;
         for (x86::reg32 i = 0; i < m_width*m_height; ++i)
         {
             const x86::reg32 color = m_colorPalette[srcData[i]];
@@ -278,16 +282,14 @@ void Renderer::update()
         }
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_width, m_height, GL_RGBA, GL_UNSIGNED_BYTE, screenData);
 #else
-        x86::reg32* screenData = reinterpret_cast<x86::reg32*>(malloc(m_width * m_height * 4));
+        x86::reg32* screenData = reinterpret_cast<x86::reg32*>(m_screenData);
         for (x86::reg32 i = 0; i < m_width*m_height; ++i)
         {
             screenData[i] = m_colorPalette[srcData[i]];
         }
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_width, m_height, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, screenData);
 #endif
-        free(screenData);
     }
-    present();
 }
 
 x86::reg32 Renderer::lock(x86::reg32 index)
@@ -299,30 +301,35 @@ void Renderer::unlock(x86::reg32 index)
 {
     if (index == 0)
     {
-        SDL_Log("[renderer] unlock front buffer");
+#if defined(__vita__)
+        const uint64_t now = SDL_GetTicksNS() / 1000;
+        if (m_lastPresentUsec && now - m_lastPresentUsec < 33333)
+            return;
+#endif
         setCurrent();
 #if !defined(__vita__)
         SDL_GL_SetSwapInterval(0);
 #endif
         update();
+        present();
         clearCurrent();
     }
 }
 
 void Renderer::swap()
 {
-    SDL_Log("[renderer] swap begin buffer=%u size=%ux%u depth=%u", unsigned(m_currentBuffer), unsigned(m_width), unsigned(m_height), unsigned(m_depth));
     setCurrent();
     const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay());
 #if !defined(__vita__)
     SDL_GL_SetSwapInterval(1);
 #endif
+    NFS2_USE(mode);
     m_currentBuffer = 1 - m_currentBuffer;
-    for (int i = 0; i < (mode ? (int)(mode->refresh_rate / 30) : 2); ++i)
-    {
-        // We enabled vsync and now render until we have a refresh rate of 30
-        update();
-    }
+
+    // Convert + upload + present exactly once. (Previously this looped
+    // refresh_rate/30 times, paying an extra vsync wait per frame.)
+    update();
+    present();
     clearCurrent();
 }
 
