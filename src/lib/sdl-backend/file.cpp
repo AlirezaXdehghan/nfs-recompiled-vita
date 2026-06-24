@@ -49,6 +49,28 @@ static std::string s_currentDirectory = "c:\\nfs2se\\";
 static std::string s_dataDirectory = "./";
 static std::string s_cdDirectory = "./";
 
+/* Sentinel fd for the Windows NUL device (the bit-bucket). NFS3 opens "nul"
+ * (e.g. when selecting a car in the menu); reads return EOF and writes are
+ * discarded. We can't map it to a real path because Vita3K has no /dev/null,
+ * so the open used to fail and the game aborted with "OPEN FAILED ON `nul`". */
+static const int NULL_DEVICE_FD = -2;
+
+static bool isNullDevice(const char* path)
+{
+    if (!path)
+        return false;
+    std::string p(path);
+    std::transform(p.begin(), p.end(), p.begin(), ::tolower);
+    for (std::string::iterator it = p.begin(); it != p.end(); ++it)
+        if (*it == '\\') *it = '/';
+    std::string::size_type slash = p.find_last_of('/');
+    if (slash != std::string::npos)
+        p = p.substr(slash + 1);
+    if (!p.empty() && p.back() == ':')
+        p.erase(p.size() - 1);
+    return p == "nul";
+}
+
 static std::string moveToRoot(const std::string& path)
 {
     if (path.size() >= 2 && path[1] == ':')
@@ -261,6 +283,15 @@ File::File(const char* path, x86::reg32 mode, x86::reg32 flags, x86::reg32 creat
     ,   m_filename(moveToRoot(path))
 {
     NFS2_USE(flags);
+    if (isNullDevice(path))
+    {
+        /* Emulate the NUL device: a valid handle that reads EOF and sinks
+         * writes (see read()/write()/seek()/size()). */
+        m_file = NULL_DEVICE_FD;
+        m_filename = "nul";
+        SDL_Log("[file] opened NUL device");
+        return;
+    }
     std::transform(m_filename.begin(), m_filename.end(), m_filename.begin(), ::tolower);
     //NFS2_ASSERT((flags & FILE_FLAG_OVERLAPPED) == 0);
     for (std::string::iterator it = m_filename.begin(); it != m_filename.end(); ++it)
@@ -324,7 +355,7 @@ File::File(const char* path, x86::reg32 mode, x86::reg32 flags, x86::reg32 creat
 
 File::~File()
 {
-    if (m_file != -1)
+    if (m_file != -1 && m_file != NULL_DEVICE_FD)
     {
         _close(m_file);
         SDL_Log("[file] closing file %s", m_filename.c_str());
@@ -333,6 +364,8 @@ File::~File()
 
 x86::reg32 File::seek(x86::reg32 mode, x86::sreg32 offset)
 {
+    if (m_file == NULL_DEVICE_FD)
+        return 0;
     int seekMode = 0;
     switch(mode)
     {
@@ -355,24 +388,40 @@ x86::reg32 File::seek(x86::reg32 mode, x86::sreg32 offset)
 
 x86::reg32 File::read(void* buffer, x86::reg32 max, x86::reg32* totalRead)
 {
+    NFS2_USE(buffer);
+    NFS2_USE(max);
+    if (m_file == NULL_DEVICE_FD)
+    {
+        *totalRead = 0; /* NUL device is always at EOF */
+        return 1;
+    }
     *totalRead = ::_read(m_file, buffer, max);
     return *totalRead != x86::reg32(-1); //*totalRead == max;
 }
 
 x86::reg32 File::write(const void* buffer, x86::reg32 max, x86::reg32* totalWritten)
 {
+    if (m_file == NULL_DEVICE_FD)
+    {
+        *totalWritten = max; /* NUL device discards all writes */
+        return 1;
+    }
     *totalWritten = ::_write(m_file, buffer, max);
     return *totalWritten == max;
 }
 
 x86::reg32 File::truncate()
 {
+    if (m_file == NULL_DEVICE_FD)
+        return 1;
     SDL_Log("[file] Truncating file %s", m_filename.c_str());
     return _chsize(m_file, _lseek(m_file, 0, 1)) == 0;
 }
 
 x86::reg32 File::size() const
 {
+    if (m_file == NULL_DEVICE_FD)
+        return 0;
     struct stat buffer;
     fstat(m_file, &buffer);
     return buffer.st_size;
