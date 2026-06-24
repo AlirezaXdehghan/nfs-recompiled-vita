@@ -36,6 +36,13 @@ private: // friend class GlideRenderer
     void present();
     void setCurrent();
     void clearCurrent();
+#if defined(__vita__)
+    /* Diagnostic (Milestone 2): render the Glide pass straight to the default
+     * framebuffer instead of the offscreen FBO, which vitaGL/Vita3K does not
+     * sample back correctly. Computes the same letterbox rect present() uses. */
+    void getLetterboxViewport(int& x, int& y, int& w, int& h);
+    void finishFrame();
+#endif
 
 private:
     void update();

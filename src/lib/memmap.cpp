@@ -1,7 +1,12 @@
 #include <lib/memmap.h>
 #include <SDL3/SDL.h>
 #include <vector>
-#ifdef _WIN32
+#if defined(__vita__)
+/* The Vita has no mmap/VirtualAlloc and no per-page protection we need: the
+ * recompiled program runs in-process against one flat buffer, so we commit it
+ * all up front with malloc and make protect() a no-op (exactly like the
+ * _WIN32 path, which also commits everything and no-ops protect). */
+#elif defined(_WIN32)
 # include <windows.h>
 #else
 # include <sys/mman.h>
@@ -26,7 +31,16 @@ std::vector<MemMap*> MemMap::s_memMaps;
 
 static void* alloc(x86::reg32 size)
 {
-#ifdef _WIN32
+#if defined(__vita__)
+    /* malloc draws from the (large) newlib heap configured in vita_runtime.c.
+     * Zero-init so the simulated address space starts clean, matching the
+     * MAP_ANONYMOUS / MEM_COMMIT zero-fill guarantee on the other platforms. */
+    SDL_Log("[memmap] calloc(%u bytes = %u MB)", (unsigned)size, (unsigned)(size >> 20));
+    void* p = calloc(1, size);
+    SDL_Log("[memmap] calloc result: %s", p ? "OK" : "FAILED (null)");
+    NFS2_ASSERT(p != nullptr);
+    return p;
+#elif defined(_WIN32)
     return VirtualAlloc(0, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 #else
     void* p = mmap(nullptr, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
@@ -37,7 +51,10 @@ static void* alloc(x86::reg32 size)
 
 static void dealloc(void* mem, x86::reg32 size)
 {
-#ifdef _WIN32
+#if defined(__vita__)
+    NFS2_USE(size);
+    free(mem);
+#elif defined(_WIN32)
     NFS2_USE(size);
     VirtualFree(mem, 0, MEM_RELEASE);
 #else
@@ -47,7 +64,7 @@ static void dealloc(void* mem, x86::reg32 size)
 
 static void protect(void* mem, x86::reg32 size, bool read, bool write)
 {
-#ifdef _WIN32
+#if defined(__vita__) || defined(_WIN32)
     NFS2_USE(mem);
     NFS2_USE(size);
     NFS2_USE(read);
@@ -166,6 +183,7 @@ x86::reg8* MemMap::init(x86::reg32 baseAddress, const std::vector<Section>& sect
         }
     }
     s_lock = new Mutex("MemMap");
+    SDL_Log("[memmap] init complete, base=%p sectionSize=%u", (void*)s_memory, (unsigned)s_sectionSize);
     return s_memory;
 }
 

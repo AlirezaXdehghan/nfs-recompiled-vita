@@ -4,6 +4,7 @@
 #include <lib/surface.h>
 #include <lib/window.h>
 #include <lib/thread.h>
+#include <SDL3/SDL.h>
 
 
 namespace win32 { namespace ddraw
@@ -74,8 +75,11 @@ HRESULT IDirectDrawSurface::Blt(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(dwFlags);
     NFS2_USE(lpDDBltFx);
+    SDL_Log("[ddraw] Blt dst=(%ld,%ld)-(%ld,%ld) src=(%ld,%ld)-(%ld,%ld) flags=0x%08x",
+            lpDestRect->left, lpDestRect->top, lpDestRect->right, lpDestRect->bottom,
+            lpSrcRect->left, lpSrcRect->top, lpSrcRect->right, lpSrcRect->bottom,
+            unsigned(dwFlags));
     NFS2_ASSERT(lpDestRect->top == 0);
     NFS2_ASSERT(lpDestRect->bottom == 480);
     NFS2_ASSERT(lpDestRect->left == 0);
@@ -159,8 +163,8 @@ HRESULT IDirectDrawSurface::Flip(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(dwFlags);
     NFS2_ASSERT(lpDDSurfaceTargetOverride == 0);
+    SDL_Log("[ddraw] Flip flags=0x%08x", unsigned(dwFlags));
     app->unlockContext(cpu);
     dynamic_cast<Surface*>(m_resource)->getRenderer()->swap();
     app->lockContext(cpu);
@@ -274,6 +278,7 @@ HRESULT IDirectDrawSurface::GetSurfaceDesc(WinApplication* app, x86::CPU& cpu,
                                            LPDDSURFACEDESC lpDDSurfaceDesc)
 {
     NFS2_USE(cpu);
+    SDL_Log("[ddraw] GetSurfaceDesc");
     DDSURFACEDESC* currentDisplayMode = &app->getMemory<DDSURFACEDESC>(IDirectDraw2::g_currentDisplayMode);
     memcpy(lpDDSurfaceDesc, currentDisplayMode, currentDisplayMode->dwSize);
     return 0;
@@ -294,6 +299,7 @@ HRESULT IDirectDrawSurface::IsLost(WinApplication* app, x86::CPU& cpu)
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
+    SDL_Log("[ddraw] IsLost");
     return 0;
 }
 
@@ -301,9 +307,9 @@ HRESULT IDirectDrawSurface::Lock(WinApplication* app, x86::CPU& cpu,
                                  LPRECT lpDestRect, LPDDSURFACEDESC lpDDSurfaceDesc, DWORD dwFlags, HANDLE hEvent)
 {
     NFS2_USE(cpu);
-    NFS2_USE(dwFlags);
     NFS2_ASSERT(lpDestRect == 0);
     NFS2_ASSERT(hEvent == 0);
+    SDL_Log("[ddraw] Lock flags=0x%08x", unsigned(dwFlags));
     DDSURFACEDESC* screenMode = &app->getMemory<DDSURFACEDESC>(IDirectDraw2::g_currentDisplayMode);
     memcpy(lpDDSurfaceDesc, screenMode, lpDDSurfaceDesc->dwSize);
     lpDDSurfaceDesc->lpSurface = Packed<void>(dynamic_cast<Surface*>(m_resource)->lock());
@@ -375,6 +381,7 @@ HRESULT IDirectDrawSurface::Unlock(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(app);
     NFS2_USE(cpu);
     NFS2_USE(lpSurfaceData);
+    SDL_Log("[ddraw] Unlock");
     app->unlockContext(cpu);
     dynamic_cast<Surface*>(m_resource)->unlock();
     app->lockContext(cpu);

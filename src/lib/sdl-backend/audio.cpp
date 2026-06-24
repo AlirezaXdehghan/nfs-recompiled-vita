@@ -14,6 +14,12 @@ static const x86::reg32 s_sampleSize = s_sampleCount * s_channelCount;
 AudioDevice::AudioDevice()
     :   m_stream(nullptr)
 {
+    SDL_Log("[audio] AudioDevice constructor");
+    if (!SDL_WasInit(SDL_INIT_AUDIO))
+    {
+        SDL_Log("[audio] audio subsystem not initialized, skipping open");
+        return;
+    }
     SDL_AudioSpec audioSpec;
     audioSpec.format   = SDL_AUDIO_S16;
     audioSpec.channels = s_channelCount;
@@ -23,15 +29,19 @@ AudioDevice::AudioDevice()
         &audioSpec,
         &audioCallback22050,
         this);
+    SDL_Log("[audio] AudioDevice stream=%p err=%s", (void*)m_stream, m_stream ? "OK" : SDL_GetError());
 }
 
 AudioDevice::~AudioDevice()
 {
-    SDL_DestroyAudioStream(m_stream);
+    if (m_stream)
+        SDL_DestroyAudioStream(m_stream);
 }
 
 void AudioDevice::play(AudioBuffer* buffer)
 {
+    if (!m_stream)
+        return;
     if (m_playingBuffers.empty())
         SDL_ResumeAudioDevice(SDL_GetAudioStreamDevice(m_stream));
     m_playingBuffers.push_back(buffer);
@@ -39,6 +49,8 @@ void AudioDevice::play(AudioBuffer* buffer)
 
 void AudioDevice::stop(AudioBuffer* buffer)
 {
+    if (!m_stream)
+        return;
     m_playingBuffers.erase(std::remove(m_playingBuffers.begin(), m_playingBuffers.end(), buffer), m_playingBuffers.end());
     if (m_playingBuffers.empty())
         SDL_PauseAudioDevice(SDL_GetAudioStreamDevice(m_stream));
@@ -167,6 +179,8 @@ x86::reg32 AudioBuffer::lock()
 
 void AudioBuffer::unlock(x86::reg32 bufferWritten)
 {
+    if (!m_device->stream())
+        return;
     SDL_LockAudioStream(m_device->stream());
     m_playStop += bufferWritten;
     SDL_UnlockAudioStream(m_device->stream());

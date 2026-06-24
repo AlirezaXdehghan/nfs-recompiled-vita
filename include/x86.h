@@ -8,9 +8,20 @@
 # define __restrict__ __restrict
 # define NFS2_ASSERT(x)         \
     if (! (x)) __debugbreak()
-#else
+#elif defined(__i386__) || defined(__x86_64__)
 # define NFS2_ASSERT(x)         \
     if (! (x)) asm("int3")
+#elif defined(__vita__)
+/* On the Vita, __builtin_trap() generates udf which Vita3K can't emulate and
+ * crashes the host process. Use SDL_Log + abort() so the assertion message
+ * appears in SDL_Log.txt before the process exits cleanly. */
+# include <SDL3/SDL.h>
+# define NFS2_ASSERT(x)         \
+    do { if (!(x)) { SDL_Log("[ASSERT FAILED] %s:%d: %s", __FILE__, __LINE__, #x); abort(); } } while(0)
+#else
+/* Non-x86 hosts: __builtin_trap() lowers to udf/bkpt on ARM. */
+# define NFS2_ASSERT(x)         \
+    if (! (x)) __builtin_trap()
 #endif
 #define NFS2_USE(x)             \
     (void)x

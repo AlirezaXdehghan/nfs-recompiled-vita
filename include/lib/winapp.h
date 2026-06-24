@@ -7,6 +7,7 @@
 #include    <lib/memmap.h>
 #include    <map>
 #include    <string>
+#include    <type_traits>
 #include    <unordered_map>
 #include    <SDL3/SDL.h>
 
@@ -151,7 +152,19 @@ public:
     void addRegistryKey(x86::reg32 root, const char* keyname, const char* valuename, RegistryValue* value);
 
     template< typename T >
-    inline MemoryAccessor<T> getMemory(x86::reg32 address) { return MemoryAccessor<T>{m_memory + address}; }
+    inline MemoryAccessor<T> getMemory(x86::reg32 address)
+    {
+        if (address < 0x100)
+        {
+            static int s_lowAddressLogCount = 0;
+            if (s_lowAddressLogCount < 128)
+            {
+                SDL_Log("[mem] low address access addr=0x%08x", unsigned(address));
+                ++s_lowAddressLogCount;
+            }
+        }
+        return MemoryAccessor<T>{m_memory + address};
+    }
 
     void registerMethod(x86::reg32 pointer, Method method);
 
@@ -166,8 +179,16 @@ public:
 public:
     inline void dynamic_call(uint32_t address, x86::CPU& cpu)
     {
-        const win32::Method& m = m_methods.find(address-0x400000)->second;
-        //SDL_LogDebug("[%lu] Calling method: %s", SDL_ThreadID(), m.name.c_str());
+        const auto it = m_methods.find(address-0x400000);
+        NFS2_ASSERT(it != m_methods.end());
+        const win32::Method& m = it->second;
+        static int s_dynamicLogCount = 0;
+        if (s_dynamicLogCount < 2000)
+        {
+            SDL_Log("[dispatch] call addr=0x%08x name=%s esp=0x%08x eax=0x%08x ecx=0x%08x edx=0x%08x",
+                unsigned(address), m.name.c_str(), unsigned(cpu.esp), unsigned(cpu.eax), unsigned(cpu.ecx), unsigned(cpu.edx));
+            ++s_dynamicLogCount;
+        }
         m(this, cpu);
     }
 

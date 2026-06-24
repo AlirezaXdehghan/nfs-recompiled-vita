@@ -5,6 +5,7 @@
 #include <lib/gliderenderer.h>
 #include <lib/window.h>
 #include <cmath>
+#include <SDL3/SDL.h>
 
 
 namespace win32 { namespace glide2x
@@ -207,8 +208,8 @@ typedef x86::reg32 GrDepthBufferMode_t;
 //static const GrDepthBufferMode_t GR_DEPTHBUFFER_WBUFFER_COMPARE_TO_BIAS     = 0x4;
 
 typedef x86::reg32 GrChromakeyMode_t;
-//static const GrChromakeyMode_t GR_CHROMAKEY_DISABLE     = 0x0;
-//static const GrChromakeyMode_t GR_CHROMAKEY_ENABLE      = 0x1;
+static const GrChromakeyMode_t GR_CHROMAKEY_DISABLE     = 0x0;
+static const GrChromakeyMode_t GR_CHROMAKEY_ENABLE      = 0x1;
 
 typedef x86::reg32 GrLock_t;
 //static const GrLock_t GR_LFB_READ_ONLY  = 0x00;
@@ -352,6 +353,7 @@ static void grGlideInit(WinApplication* app, x86::CPU& cpu)
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
+    SDL_Log("[glide] grGlideInit");
     s_renderer = nullptr;
     s_glideRenderer = nullptr;
 }
@@ -359,6 +361,7 @@ static void grGlideInit(WinApplication* app, x86::CPU& cpu)
 static void grGlideShutdown(WinApplication* app, x86::CPU& cpu)
 {
     NFS2_USE(cpu);
+    SDL_Log("[glide] grGlideShutdown");
     if (s_glideRenderer)
     {
         app->freeResource(s_glideRenderer->getResourceIndex());
@@ -406,11 +409,9 @@ static x86::reg32 grSstWinOpen(WinApplication* app, x86::CPU& cpu, HWND hWnd,
                                GrOriginLocation_t origin, x86::sreg32 nColBuffers, x86::sreg32 nAuxBuffers)
 {
     NFS2_USE(cpu);
-    NFS2_USE(refreshRate);
-    NFS2_USE(format);
-    NFS2_USE(origin);
-    NFS2_USE(nColBuffers);
-    NFS2_USE(nAuxBuffers);
+    SDL_Log("[glide] grSstWinOpen hwnd=%u res=0x%x refresh=0x%x format=0x%x origin=0x%x col=%d aux=%d",
+            unsigned(hWnd), unsigned(resolution), unsigned(refreshRate), unsigned(format),
+            unsigned(origin), int(nColBuffers), int(nAuxBuffers));
 
     x86::sreg32 width, height;
     switch(resolution)
@@ -486,6 +487,7 @@ static x86::reg32 grSstWinOpen(WinApplication* app, x86::CPU& cpu, HWND hWnd,
 static void grSstWinClose(WinApplication* app, x86::CPU& cpu)
 {
     NFS2_USE(cpu);
+    SDL_Log("[glide] grSstWinClose");
     if (s_glideRenderer)
     {
         app->freeResource(s_glideRenderer->getResourceIndex());
@@ -502,6 +504,7 @@ static x86::reg32 grSstStatus(WinApplication* app, x86::CPU& cpu)
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
+    SDL_Log("[glide] grSstStatus");
     return 0x0fff03f;
 }
 
@@ -509,6 +512,7 @@ static x86::reg32 grSstVRetraceOn(WinApplication* app, x86::CPU& cpu)
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
+    SDL_Log("[glide] grSstVRetraceOn");
     return 0;
 }
 
@@ -532,7 +536,7 @@ static void grChromakeyValue(WinApplication* app, x86::CPU& cpu, GrColor_t  colo
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(color);
+    s_glideRenderer->setChromakeyValue(color);
     //NFS2_ASSERT(false);
 }
 
@@ -540,7 +544,7 @@ static void grAlphaTestReferenceValue(WinApplication* app, x86::CPU& cpu, GrAlph
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(value);
+    s_glideRenderer->setAlphaTestReference(value);
     //NFS2_ASSERT(false);
 }
 
@@ -566,6 +570,7 @@ static void grBufferClear(WinApplication* app, x86::CPU& cpu, GrColor_t color, G
     //NFS2_ASSERT(color == 0);
     NFS2_ASSERT(alpha == 0);
     NFS2_ASSERT(depth == 65535);
+    SDL_Log("[glide] grBufferClear color=0x%08x depth=%u", unsigned(color), unsigned(depth));
     app->unlockContext(cpu);
     s_glideRenderer->clear(color);
     app->lockContext(cpu);
@@ -574,6 +579,7 @@ static void grBufferClear(WinApplication* app, x86::CPU& cpu, GrColor_t color, G
 static void grBufferSwap(WinApplication* app, x86::CPU& cpu, x86::reg32 swapInterval)
 {
     NFS2_ASSERT(swapInterval == 1);
+    SDL_Log("[glide] grBufferSwap interval=%u", unsigned(swapInterval));
     app->unlockContext(cpu);
     s_glideRenderer->swap();
     app->lockContext(cpu);
@@ -699,7 +705,8 @@ static void grChromakeyMode(WinApplication* app, x86::CPU& cpu, GrChromakeyMode_
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(mode);
+    NFS2_ASSERT(mode == GR_CHROMAKEY_DISABLE || mode == GR_CHROMAKEY_ENABLE);
+    s_glideRenderer->setChromakeyEnabled(mode == GR_CHROMAKEY_ENABLE);
     //NFS2_ASSERT(false);
 }
 
@@ -707,7 +714,8 @@ static void grAlphaTestFunction(WinApplication* app, x86::CPU& cpu, GrCmpFnc_t f
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_ASSERT(function == GR_CMP_GREATER);
+    NFS2_ASSERT(function == GR_CMP_GREATER || function == GR_CMP_ALWAYS);
+    s_glideRenderer->setAlphaTestEnabled(function == GR_CMP_GREATER);
 }
 
 static void grDepthBufferMode(WinApplication* app, x86::CPU& cpu, GrDepthBufferMode_t mode)
@@ -1066,6 +1074,7 @@ static x86::sreg32 grBufferNumPending(WinApplication* app, x86::CPU& cpu)
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
+    SDL_Log("[glide] grBufferNumPending");
     return 0;
 }
 

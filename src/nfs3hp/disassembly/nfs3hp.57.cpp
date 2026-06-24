@@ -595,6 +595,7 @@ void Application::sub_533e8c(WinApplication* app, x86::CPU& cpu)
   NFS2_USE(cpu);
   NFS2_USE(app);
     // 00533e8c  ff257c465300           -jmp dword ptr [0x53467c]
+    SDL_Log("[nfs3hp] enter sub_533e8c target=0x%08x", unsigned(app->getMemory<x86::reg32>(5457532)));
     return app->dynamic_call(app->getMemory<x86::reg32>(5457532), cpu);
 }
 
@@ -604,6 +605,7 @@ void Application::sub_533e92(WinApplication* app, x86::CPU& cpu)
   NFS2_USE(cpu);
   NFS2_USE(app);
     // 00533e92  ff2574465300           -jmp dword ptr [0x534674]
+    SDL_Log("[nfs3hp] enter sub_533e92 target=0x%08x", unsigned(app->getMemory<x86::reg32>(5457524)));
     return app->dynamic_call(app->getMemory<x86::reg32>(5457524), cpu);
 }
 
@@ -613,6 +615,7 @@ void Application::sub_533e98(WinApplication* app, x86::CPU& cpu)
   NFS2_USE(cpu);
   NFS2_USE(app);
     // 00533e98  ff2578465300           -jmp dword ptr [0x534678]
+    SDL_Log("[nfs3hp] enter sub_533e98 target=0x%08x", unsigned(app->getMemory<x86::reg32>(5457528)));
     return app->dynamic_call(app->getMemory<x86::reg32>(5457528), cpu);
 }
 

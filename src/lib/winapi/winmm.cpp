@@ -2,6 +2,7 @@
 #include <lib/timer.h>
 #include <lib/gamepad.h>
 #include <x86.h>
+#include <SDL3/SDL.h>
 
 namespace win32 { namespace winmm
 {
@@ -10,6 +11,7 @@ UINT joyGetNumDevs(WinApplication* app, x86::CPU& cpu)
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
+    SDL_Log("[winmm] joyGetNumDevs -> %u", unsigned(Gamepad::getCount()));
     return Gamepad::getCount();
 }
 
@@ -19,6 +21,7 @@ MMRESULT timeBeginPeriod(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(app);
     NFS2_USE(cpu);
     NFS2_USE(uPeriod);
+    SDL_Log("[winmm] timeBeginPeriod %u", unsigned(uPeriod));
     return 0;
 }
 
@@ -28,6 +31,7 @@ MMRESULT timeEndPeriod(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(app);
     NFS2_USE(cpu);
     NFS2_USE(uPeriod);
+    SDL_Log("[winmm] timeEndPeriod %u", unsigned(uPeriod));
     return 0;
 }
 
@@ -37,6 +41,7 @@ MMRESULT timeGetDevCaps(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(app);
     NFS2_USE(cpu);
     NFS2_ASSERT(cbtc == sizeof(*ptc));
+    SDL_Log("[winmm] timeGetDevCaps size=%u", unsigned(cbtc));
     ptc->wPeriodMin = 1;
     ptc->wPeriodMax = 1000;
     return 0;
@@ -46,6 +51,7 @@ MMRESULT timeKillEvent(WinApplication* app, x86::CPU& cpu,
                        UINT uTimerID)
 {
     NFS2_USE(cpu);
+    SDL_Log("[winmm] timeKillEvent id=%u", unsigned(uTimerID));
     win32::Timer* timer = dynamic_cast<win32::Timer*>(app->getResource(uTimerID));
     if (timer)
     {
@@ -62,6 +68,8 @@ MMRESULT timeSetEvent(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(cpu);
     NFS2_ASSERT(fuEvent == 0);
     NFS2_USE(uResolution);
+    SDL_Log("[winmm] timeSetEvent delay=%u resolution=%u callback=0x%08x user=0x%08x event=%u",
+            unsigned(uDelay), unsigned(uResolution), unsigned(lpTimeProc), unsigned(dwUser), unsigned(fuEvent));
     if (!cpu.terminate)
     {
         win32::Timer* timer = new win32::Timer(uDelay, app, lpTimeProc, dwUser);

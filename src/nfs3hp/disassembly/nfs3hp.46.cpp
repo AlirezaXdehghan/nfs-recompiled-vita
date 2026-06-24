@@ -1,5 +1,23 @@
 #include "nfs3hp.h"
 #include <lib/thread.h>
+#include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
+
+namespace
+{
+void append_trace_line(const char* line)
+{
+    int fd = open("ux0:/data/nfs3hp_trace.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0)
+    {
+        write(fd, line, strlen(line));
+        close(fd);
+    }
+}
+
+}
+#include <SDL3/SDL.h>
 
 namespace nfs3hp
 {
@@ -5062,48 +5080,72 @@ void Application::sub_5158a0(WinApplication* app, x86::CPU& cpu)
     cpu.ebp = cpu.esp;
     // 005158a6  83ec08                 -sub esp, 8
     (cpu.esp) -= x86::reg32(x86::sreg32(8 /*0x8*/));
+    SDL_Log("[nfs3hp] prep524290 after sub esp,8 esp=0x%08x ebp=0x%08x", unsigned(cpu.esp), unsigned(cpu.ebp));
     // 005158a9  b801000000             -mov eax, 1
     cpu.eax = 1 /*0x1*/;
+    SDL_Log("[nfs3hp] prep524290 eax=0x%08x", unsigned(cpu.eax));
     // 005158ae  e8699bfeff             -call 0x4ff41c
+    SDL_Log("[nfs3hp] before sub_4ff41c");
     cpu.esp -= 4;
     sub_4ff41c(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] after sub_4ff41c");
     // 005158b3  a170af5600             -mov eax, dword ptr [0x56af70]
     cpu.eax = app->getMemory<x86::reg32>(x86::reg32(5681008) /* 0x56af70 */);
+    SDL_Log("[nfs3hp] prep524290 global56af70=0x%08x", unsigned(cpu.eax));
     // 005158b8  83c003                 -add eax, 3
     (cpu.eax) += x86::reg32(x86::sreg32(3 /*0x3*/));
+    SDL_Log("[nfs3hp] prep524290 eax_plus3=0x%08x", unsigned(cpu.eax));
     // 005158bb  24fc                   -and al, 0xfc
     cpu.al &= x86::reg8(x86::sreg8(252 /*0xfc*/));
+    SDL_Log("[nfs3hp] prep524290 eax_aligned=0x%08x", unsigned(cpu.eax));
     // 005158bd  31d2                   -xor edx, edx
     cpu.edx ^= x86::reg32(x86::sreg32(cpu.edx));
+    SDL_Log("[nfs3hp] prep524290 edx=0x%08x", unsigned(cpu.edx));
     // 005158bf  29c4                   -sub esp, eax
     (cpu.esp) -= x86::reg32(x86::sreg32(cpu.eax));
+    SDL_Log("[nfs3hp] prep524290 esp_after_alloc=0x%08x alloc=0x%08x", unsigned(cpu.esp), unsigned(cpu.eax));
     // 005158c1  89e1                   -mov ecx, esp
     cpu.ecx = cpu.esp;
+    SDL_Log("[nfs3hp] prep524290 ecx=esp=0x%08x", unsigned(cpu.ecx));
     // 005158c3  8b1d70af5600           -mov ebx, dword ptr [0x56af70]
     cpu.ebx = app->getMemory<x86::reg32>(x86::reg32(5681008) /* 0x56af70 */);
+    SDL_Log("[nfs3hp] prep524290 ebx=0x%08x", unsigned(cpu.ebx));
     // 005158c9  89c8                   -mov eax, ecx
     cpu.eax = cpu.ecx;
+    SDL_Log("[nfs3hp] prep524290 eax=ecx=0x%08x", unsigned(cpu.eax));
     // 005158cb  e870adfcff             -call 0x4e0640
+    SDL_Log("[nfs3hp] before sub_4e0640");
     cpu.esp -= 4;
     sub_4e0640(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] after sub_4e0640");
     // 005158d0  a170af5600             -mov eax, dword ptr [0x56af70]
     cpu.eax = app->getMemory<x86::reg32>(x86::reg32(5681008) /* 0x56af70 */);
+    SDL_Log("[nfs3hp] prep524290 post4e0640 global56af70=0x%08x ecx=0x%08x", unsigned(cpu.eax), unsigned(cpu.ecx));
     // 005158d5  89ca                   -mov edx, ecx
     cpu.edx = cpu.ecx;
+    SDL_Log("[nfs3hp] prep524290 edx=ecx=0x%08x", unsigned(cpu.edx));
     // 005158d7  8981f0000000           -mov dword ptr [ecx + 0xf0], eax
     app->getMemory<x86::reg32>(cpu.ecx + x86::reg32(240) /* 0xf0 */) = cpu.eax;
+    SDL_Log("[nfs3hp] prep524290 wrote [ecx+0xf0]=0x%08x at 0x%08x", unsigned(cpu.eax), unsigned(cpu.ecx + x86::reg32(240)));
     // 005158dd  8d45f8                 -lea eax, [ebp - 8]
     cpu.eax = x86::reg32(cpu.ebp + x86::reg32(-8) /* -0x8 */);
+    SDL_Log("[nfs3hp] prep524290 eax=ebp-8=0x%08x ebp=0x%08x", unsigned(cpu.eax), unsigned(cpu.ebp));
     // 005158e0  e8539afeff             -call 0x4ff338
+    SDL_Log("[nfs3hp] before sub_4ff338");
     cpu.esp -= 4;
     sub_4ff338(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] after sub_4ff338");
     // 005158e5  e8a6e90000             -call 0x524290
+    SDL_Log("[nfs3hp] CALL524290_A esp=0x%08x ebp=0x%08x eax=0x%08x ebx=0x%08x ecx=0x%08x edx=0x%08x",
+        unsigned(cpu.esp), unsigned(cpu.ebp), unsigned(cpu.eax), unsigned(cpu.ebx), unsigned(cpu.ecx), unsigned(cpu.edx));
+    append_trace_line("CALL524290_A\n");
     cpu.esp -= 4;
     sub_524290(app, cpu);
     if (cpu.terminate) return;
+    append_trace_line("CALL524290_B\n");
     // 005158ea  89ec                   -mov esp, ebp
     cpu.esp = cpu.ebp;
     // 005158ec  5d                     -pop ebp

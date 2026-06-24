@@ -1,5 +1,21 @@
 #include "nfs3hp.h"
 #include <lib/thread.h>
+#include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
+
+namespace
+{
+void append_trace_line(const char* line)
+{
+    int fd = open("ux0:/data/nfs3hp_trace.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0)
+    {
+        write(fd, line, strlen(line));
+        close(fd);
+    }
+}
+}
 
 namespace nfs3hp
 {
@@ -4347,6 +4363,7 @@ void Application::sub_524290(WinApplication* app, x86::CPU& cpu)
 {
   NFS2_USE(cpu);
   NFS2_USE(app);
+    append_trace_line("ENTER524290\n");
     // 00524290  52                     -push edx
     app->getMemory<x86::reg32>(cpu.esp-4) = cpu.edx;
     cpu.esp -= 4;
@@ -4362,9 +4379,11 @@ void Application::sub_524290(WinApplication* app, x86::CPU& cpu)
     // 0052429d  80e2fc                 -and dl, 0xfc
     cpu.dl &= x86::reg8(x86::sreg8(252 /*0xfc*/));
     // 005242a0  e81b03fdff             -call 0x4f45c0
+    SDL_Log("[nfs3hp] sub_524290 before sub_4f45c0");
     cpu.esp -= 4;
     sub_4f45c0(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_524290 after sub_4f45c0");
     // 005242a5  39c2                   +cmp edx, eax
     {
         x86::reg32 tmp1 = cpu.edx;
@@ -4385,9 +4404,11 @@ void Application::sub_524290(WinApplication* app, x86::CPU& cpu)
     app->getMemory<x86::reg32>(cpu.esp-4) = cpu.edx;
     cpu.esp -= 4;
     // 005242aa  e86103fdff             -call 0x4f4610
+    SDL_Log("[nfs3hp] sub_524290 before sub_4f4610");
     cpu.esp -= 4;
     sub_4f4610(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_524290 after sub_4f4610");
     // 005242af  a120785600             -mov eax, dword ptr [0x567820]
     cpu.eax = app->getMemory<x86::reg32>(x86::reg32(5666848) /* 0x567820 */);
     // 005242b4  83c003                 -add eax, 3
@@ -4421,21 +4442,27 @@ L_0x005242c1:
     // 005242c9  a324785600             -mov dword ptr [0x567824], eax
     app->getMemory<x86::reg32>(x86::reg32(5666852) /* 0x567824 */) = cpu.eax;
     // 005242ce  e86d730000             -call 0x52b640
+    SDL_Log("[nfs3hp] sub_524290 before sub_52b640");
     cpu.esp -= 4;
     sub_52b640(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_524290 after sub_52b640");
     // 005242d3  8b151482a100           -mov edx, dword ptr [0xa18214]
     cpu.edx = app->getMemory<x86::reg32>(x86::reg32(10584596) /* 0xa18214 */);
     // 005242d9  a11082a100             -mov eax, dword ptr [0xa18210]
     cpu.eax = app->getMemory<x86::reg32>(x86::reg32(10584592) /* 0xa18210 */);
     // 005242de  e80df7f7ff             -call 0x4a39f0
+    SDL_Log("[nfs3hp] sub_524290 before sub_4a39f0");
     cpu.esp -= 4;
     sub_4a39f0(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_524290 after sub_4a39f0");
     // 005242e3  e81cbafbff             -call 0x4dfd04
+    SDL_Log("[nfs3hp] sub_524290 before sub_4dfd04");
     cpu.esp -= 4;
     sub_4dfd04(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_524290 after sub_4dfd04");
     // 005242e8  89ec                   -mov esp, ebp
     cpu.esp = cpu.ebp;
     // 005242ea  5d                     -pop ebp

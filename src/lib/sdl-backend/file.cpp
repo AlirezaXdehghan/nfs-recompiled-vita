@@ -8,7 +8,26 @@
 #else
 # include <unistd.h>
 # include <dirent.h>
-# include <fnmatch.h>
+# if defined(__vita__)
+static int fnmatch(const char* pattern, const char* str, int /*flags*/)
+{
+    // Minimal glob: only '*' wildcard, case-sensitive.
+    while (*pattern && *str) {
+        if (*pattern == '*') {
+            while (*pattern == '*') pattern++;
+            if (!*pattern) return 0;
+            while (*str) { if (fnmatch(pattern, str, 0) == 0) return 0; str++; }
+            return 1;
+        }
+        if (*pattern != *str) return 1;
+        pattern++; str++;
+    }
+    while (*pattern == '*') pattern++;
+    return (*pattern || *str) ? 1 : 0;
+}
+# else
+#  include <fnmatch.h>
+# endif
 # define _open   open
 # define _close  close
 # define _dup    dup
@@ -139,7 +158,7 @@ FileEnumerator::FileEnumerator(const char* filename)
     ,   m_index(-1)
 {
     std::transform(m_pattern.begin(), m_pattern.end(), m_pattern.begin(), ::tolower);
-    SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "Enumerate %s", m_pattern.c_str());
+    SDL_Log("[file] Enumerate %s", m_pattern.c_str());
 #ifdef _WIN32
     NFS2_ASSERT(sizeof(::WIN32_FIND_DATAA) == sizeof(WIN32_FIND_DATAA));
     ::WIN32_FIND_DATAA findData;
@@ -148,13 +167,13 @@ FileEnumerator::FileEnumerator(const char* filename)
     if (h != ::HANDLE(-1))
     {
         memcpy(&result, &findData, sizeof(result));
-        SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "  ->  %s", result.cFileName);
+        SDL_Log("[file]   ->  %s", result.cFileName);
         m_files.push_back(result);
     }
     while (::FindNextFileA(h, &findData))
     {
         memcpy(&result, &findData, sizeof(result));
-        SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "  ->  %s", result.cFileName);
+        SDL_Log("[file]   ->  %s", result.cFileName);
         m_files.push_back(result);
     }
     ::FindClose(h);
@@ -187,7 +206,7 @@ FileEnumerator::FileEnumerator(const char* filename)
         struct dirent* entry;
         while ((entry = readdir(d)) != nullptr)
         {
-            if (fnmatch(filePattern.c_str(), entry->d_name, FNM_CASEFOLD) == 0)
+            if (fnmatch(filePattern.c_str(), entry->d_name, 0) == 0)
             {
                 std::string fullPath = dirPath + "/" + entry->d_name;
                 struct stat buffer;
@@ -234,7 +253,7 @@ File::File(const File& other)
     :   m_file(_open(other.m_filename.c_str(), O_RDONLY|O_BINARY, 0664))
     ,   m_filename(other.m_filename)
 {
-    SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "opening file %s for Map", m_filename.c_str());
+    SDL_Log("[file] opening file %s for Map", m_filename.c_str());
 }
 
 File::File(const char* path, x86::reg32 mode, x86::reg32 flags, x86::reg32 creationFlags)
@@ -282,14 +301,24 @@ File::File(const char* path, x86::reg32 mode, x86::reg32 flags, x86::reg32 creat
         NFS2_ASSERT(false);
     }
 
+    if (m_filename.find(".mad") != std::string::npos ||
+        m_filename.find("movies") != std::string::npos ||
+        m_filename.find("config.dat") != std::string::npos ||
+        m_filename.find("install.win") != std::string::npos ||
+        m_filename.find("nfs3.exe") != std::string::npos)
+    {
+        SDL_Log("[file] targeted open path=%s mode=0x%08x flags=0x%08x creation=0x%08x",
+            m_filename.c_str(), unsigned(mode), unsigned(flags), unsigned(creationFlags));
+    }
+
     m_file = _open(m_filename.c_str(), openFlags, 0664);
     if (m_file == -1)
     {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "unable to open file %s", m_filename.c_str());
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[file] unable to open file %s", m_filename.c_str());
     }
     else
     {
-        SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "opening file %s", m_filename.c_str());
+        SDL_Log("[file] opening file %s", m_filename.c_str());
     }
 }
 
@@ -298,7 +327,7 @@ File::~File()
     if (m_file != -1)
     {
         _close(m_file);
-        SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "closing file %s", m_filename.c_str());
+        SDL_Log("[file] closing file %s", m_filename.c_str());
     }
 }
 
@@ -338,7 +367,7 @@ x86::reg32 File::write(const void* buffer, x86::reg32 max, x86::reg32* totalWrit
 
 x86::reg32 File::truncate()
 {
-    SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "Truncating file %s", m_filename.c_str());
+    SDL_Log("[file] Truncating file %s", m_filename.c_str());
     return _chsize(m_file, _lseek(m_file, 0, 1)) == 0;
 }
 
@@ -384,12 +413,12 @@ x86::reg32 File::remove(const char *filename)
     f = resolvePathCaseInsensitive(f);
     if (_unlink(f.c_str()) != 0)
     {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "unable to delete file %s", filename);
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[file] unable to delete file %s", filename);
         return 0;
     }
     else
     {
-        SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "Deleting file %s", filename);
+        SDL_Log("[file] Deleting file %s", filename);
         return 1;
     }
 }

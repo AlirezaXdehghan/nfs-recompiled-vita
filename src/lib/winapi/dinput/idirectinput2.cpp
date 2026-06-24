@@ -2,6 +2,7 @@
 #include <winapi/dinput/idirectinputdevice.h>
 #include <winapi/wrapper.h>
 #include <lib/gamepad.h>
+#include <SDL3/SDL.h>
 
 
 namespace win32 { namespace dinput
@@ -41,6 +42,7 @@ HRESULT IDirectInput2::CreateDevice(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(app);
     NFS2_USE(cpu);
     NFS2_ASSERT(pUnkOuter == nullptr);
+    SDL_Log("[dinput] CreateDevice rguid=%04x", rguid ? rguid->Data3 : 0xdead);
     Input* input;
     if (*rguid == s_GUID_SysKeyboard)
     {

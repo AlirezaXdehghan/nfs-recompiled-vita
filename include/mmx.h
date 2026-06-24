@@ -3,7 +3,17 @@
 
 #include <x86.h>
 //#include <intrin.h>
-#include <immintrin.h>
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+# include <immintrin.h>
+#else
+/* No x86 SIMD on this host (e.g. the PS Vita's ARMv7-A + NEON). sse2neon.h is a
+ * single-header shim that implements the SSE/SSE2 intrinsic surface on top of
+ * ARM NEON, and it provides __m128i + every _mm_* the generated code uses
+ * (_mm_cvtsi32_si128, _mm_slli_epi64, _mm_madd_epi16, _mm_packs_epi32, ...).
+ * The vita/ CMake fetches it onto the include path. */
+# define SSE2NEON_SUPPRESS_WARNINGS 1
+# include <sse2neon.h>
+#endif
 
 namespace x86
 {

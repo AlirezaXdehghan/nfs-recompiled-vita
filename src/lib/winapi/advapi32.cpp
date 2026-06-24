@@ -1,6 +1,7 @@
 #include <winapi/advapi32.h>
 #include <lib/registry.h>
 #include <x86.h>
+#include <SDL3/SDL.h>
 #include <string>
 
 
@@ -31,6 +32,7 @@ LSTATUS RegOpenKeyExA(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(cpu);
     NFS2_USE(ulOptions);
     NFS2_USE(samDesired);
+    SDL_Log("[registry] RegOpenKeyEx subkey=%s", lpSubKey ? lpSubKey : "(null)");
     RegistryKey* key = dynamic_cast<RegistryKey*>(app->getResource(hKey));
     if (key)
     {
@@ -42,8 +44,10 @@ LSTATUS RegOpenKeyExA(WinApplication* app, x86::CPU& cpu,
                 /* nothing */;
             std::string subkey = std::string(subk, subkEnd);
             key = key->getChild(subkey);
-            if (!key)
+            if (!key) {
+                SDL_Log("[registry] RegOpenKeyEx FAILED at subkey=%s", subkey.c_str());
                 return 1;
+            }
             subk = subkEnd;
             if (*subk) subk++;
         }
@@ -65,6 +69,7 @@ LSTATUS RegQueryValueExA(WinApplication* app, x86::CPU& cpu,
     if (key)
     {
         RegistryValue* value = key->getValue(lpValueName);
+        SDL_Log("[registry] RegQueryValueEx name=%s %s", lpValueName ? lpValueName : "(null)", value ? "OK" : "MISS");
         if (!value)
         {
             return 1;

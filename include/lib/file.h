@@ -75,6 +75,7 @@ public:
     x86::reg32 write(const void *buffer, x86::reg32 max, x86::reg32* totalWritten);
     x86::reg32 truncate();
     x86::reg32 size() const;
+    const std::string& getFilename() const { return m_filename; }
 
     static const std::string& getCurrentDirectory();
     static void setCurrentDirectory(const char* path);

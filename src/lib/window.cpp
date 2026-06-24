@@ -59,13 +59,22 @@ WindowClass::~WindowClass()
 }
 
 Window::Window(const char *title, int /*x*/, int /*y*/, int w, int h)
-    :   m_window(SDL_CreateWindow(title, w, h, SDL_WINDOW_RESIZABLE|SDL_WINDOW_OPENGL))
+    :   m_window(nullptr)
 {
+    SDL_Log("[window] SDL_CreateWindow %dx%d", w, h);
+    m_window = SDL_CreateWindow(title, w, h,
+#if defined(__vita__)
+        SDL_WINDOW_RESIZABLE
+#else
+        SDL_WINDOW_RESIZABLE|SDL_WINDOW_OPENGL
+#endif
+    );
     if (!m_window)
     {
         SDL_LogError(SDL_LOG_CATEGORY_VIDEO, "Failed to create window: %s", SDL_GetError());
         return;
     }
+    SDL_Log("[window] window created OK");
 }
 
 Window::~Window()
@@ -261,6 +270,36 @@ x86::reg32 Window::getMessage(const x86::CPU& cpu, MSG* result, Window *window, 
                     {
                         if (event.jbutton.which == 0)
                         {
+#if defined(__vita__)
+                            /* SDL3's PS Vita joystick driver numbers the pad:
+                             *   0 Triangle 1 Circle 2 Cross 3 Square 4 L 5 R
+                             *   6 Down 7 Left 8 Up 9 Right 10 Select 11 Start.
+                             * Map each to a key and re-emit it as a synthetic
+                             * SDL key event so the proven SDL_EVENT_KEY_* path
+                             * below builds the WM_KEYDOWN/WM_CHAR exactly as a
+                             * real keypress would. Cross/Start = confirm (Enter),
+                             * Circle/Select = back (Escape), D-pad = arrows
+                             * (menus). In-game steering + accel/brake come from
+                             * the left stick (axes 0/1, handled below). */
+                            SDL_Keycode  k  = SDLK_SPACE;
+                            SDL_Scancode sc = SDL_SCANCODE_SPACE;
+                            switch (event.jbutton.button)
+                            {
+                                case 2: case 11: k = SDLK_RETURN; sc = SDL_SCANCODE_RETURN; break;
+                                case 1: case 10: k = SDLK_ESCAPE; sc = SDL_SCANCODE_ESCAPE; break;
+                                case 6:  k = SDLK_DOWN;  sc = SDL_SCANCODE_DOWN;  break;
+                                case 7:  k = SDLK_LEFT;  sc = SDL_SCANCODE_LEFT;  break;
+                                case 8:  k = SDLK_UP;    sc = SDL_SCANCODE_UP;    break;
+                                case 9:  k = SDLK_RIGHT; sc = SDL_SCANCODE_RIGHT; break;
+                                default: break; /* Triangle/Square/L/R -> Space */
+                            }
+                            SDL_Event kevent;
+                            kevent.type = event.jbutton.down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+                            kevent.key.key = k;
+                            kevent.key.scancode = sc;
+                            SDL_PushEvent(&kevent);
+                            break;
+#else
                             if (event.jbutton.button == 7)
                             {
                                 /* simulate Enter */
@@ -292,6 +331,7 @@ x86::reg32 Window::getMessage(const x86::CPU& cpu, MSG* result, Window *window, 
                             }
 
                             return 1;
+#endif
                         }
                     }
                     break;

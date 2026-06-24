@@ -2,6 +2,7 @@
 #include <winapi/com.h>
 #include <winapi/dsound/idirectsound.h>
 #include <x86.h>
+#include <SDL3/SDL.h>
 
 namespace win32 { namespace dsound
 {
@@ -9,6 +10,7 @@ namespace win32 { namespace dsound
 HRESULT DirectSoundCreate(WinApplication* app, x86::CPU& cpu,
                           GUID* lpGuid, Packed<IDirectSound>* ppDS, LPVOID punkOuter)
 {
+    SDL_Log("[dsound] DirectSoundCreate");
     NFS2_USE(app);
     NFS2_USE(cpu);
     NFS2_USE(lpGuid);

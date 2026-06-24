@@ -5,6 +5,7 @@
 #include <winapi/wrapper.h>
 #include <lib/window.h>
 #include <lib/renderer.h>
+#include <SDL3/SDL.h>
 
 
 namespace win32 { namespace ddraw
@@ -143,8 +144,13 @@ HRESULT IDirectDraw2::CreateSurface(WinApplication* app, x86::CPU& cpu,
                                     DDSURFACEDESC* lpSurfaceDesc, x86::reg32* lpDirectDrawSurface, LPUNKNOWN pUnkOuter)
 {
     NFS2_USE(cpu);
-    NFS2_USE(lpSurfaceDesc);
     NFS2_ASSERT(pUnkOuter == nullptr);
+    SDL_Log("[ddraw] CreateSurface flags=0x%08x size=%ux%u pitch=%u bpp=%u",
+            unsigned(lpSurfaceDesc->dwFlags),
+            unsigned(lpSurfaceDesc->dwWidth),
+            unsigned(lpSurfaceDesc->dwHeight),
+            unsigned(lpSurfaceDesc->dwLinearSize),
+            unsigned(lpSurfaceDesc->ddpfPixelFormat.dwRGBBitCount));
     *lpDirectDrawSurface = com::ComAlloc(app);
     IDirectDrawSurface* mem = &app->getMemory<IDirectDrawSurface>(*lpDirectDrawSurface);
     new (mem) IDirectDrawSurface(app, &app->getMemory<DDSURFACEDESC>(g_currentDisplayMode),
@@ -164,7 +170,7 @@ HRESULT IDirectDraw2::EnumDisplayModes(WinApplication* app, x86::CPU& cpu,
                                        DWORD dwFlags, DDSURFACEDESC* lpDDSurfaceDesc,
                                        Packed<void> context, x86::reg32 lpEnumModesCallback)
 {
-    NFS2_USE(dwFlags);
+    SDL_Log("[ddraw] EnumDisplayModes flags=0x%08x callback=0x%08x", unsigned(dwFlags), unsigned(lpEnumModesCallback));
     if (lpDDSurfaceDesc)
     {
         NFS2_ASSERT(lpDDSurfaceDesc->dwSize == sizeof(DDSURFACEDESC));
@@ -280,7 +286,7 @@ void IDirectDraw2::RestoreDisplayMode(WinApplication* app, x86::CPU& cpu)
 HRESULT IDirectDraw2::SetCooperativeLevel(WinApplication* app, x86::CPU& cpu, HWND hWNd, DWORD dwFlags)
 {
     NFS2_USE(cpu);
-    NFS2_USE(dwFlags);
+    SDL_Log("[ddraw] SetCooperativeLevel hwnd=%u flags=0x%08x", unsigned(hWNd), unsigned(dwFlags));
     Window* window = dynamic_cast<Window*>(app->getResource(hWNd));
     if (!window)
     {
@@ -300,8 +306,8 @@ HRESULT IDirectDraw2::SetDisplayMode(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(dwRefreshRate);
-    NFS2_USE(dwFlags);
+    SDL_Log("[ddraw] SetDisplayMode %ux%u bpp=%u refresh=%u flags=0x%08x",
+            unsigned(dwWidth), unsigned(dwHeight), unsigned(dwBPP), unsigned(dwRefreshRate), unsigned(dwFlags));
     g_currentDisplayMode = dwBPP == 8 ? (dwWidth == 640 ?  g_dm8bpp640 : g_dm8bpp800)
                                       : (dwWidth == 640 ?  g_dm16bpp640 : g_dm16bpp800);
     dynamic_cast<Renderer*>(m_resource)->setVideoMode(dwWidth, dwHeight, dwBPP);
@@ -321,6 +327,7 @@ HRESULT IDirectDraw2::GetAvailableVidMem(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(app);
     NFS2_USE(cpu);
     NFS2_USE(lpDDSCaps);
+    SDL_Log("[ddraw] GetAvailableVidMem");
     *lpdwTotal = dynamic_cast<Renderer*>(m_resource)->getVideoMemorySize();
     *lpdwFree = dynamic_cast<Renderer*>(m_resource)->getVideoMemorySize();
     return 0;

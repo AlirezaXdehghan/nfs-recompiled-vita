@@ -2,11 +2,54 @@
 #include <lib/renderer.h>
 #include <lib/glidetmu.h>
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_opengl.h>
+#if defined(__vita__)
+/* vitaGL provides the GL2/GL3 entry points (glCreateShader, glGenBuffers,
+ * glGenVertexArrays, glGenFramebuffers, ...) as real linked symbols, so on
+ * Vita we call them directly instead of resolving function pointers through
+ * SDL_GL_GetProcAddress. The pointer table and its loader below are therefore
+ * compiled out for __vita__. NOTE: the GLSL "#version 400" shaders further
+ * down are desktop GL and must be reworked for vitaGL's runtime Cg compiler
+ * (vitaShaRK) — see vita/README_VITA.md §"Renderer (Milestone 2)". */
+# include <vitaGL.h>
+#else
+# include <SDL3/SDL_opengl.h>
+#endif
 
 namespace win32
 {
 
+#if defined(__vita__)
+/* Milestone 2 diagnostic: vitaGL/Vita3K renders the Glide pass into the FBO
+ * (FBO reports COMPLETE, geometry + sky-blue clear are submitted with no GL
+ * error) but present() samples the attached texture back as solid black. Flip
+ * this to render the pass directly to the default framebuffer instead, with the
+ * same letterbox viewport present() would apply. Set to false to restore the
+ * original offscreen-FBO path. */
+static const bool s_vitaDirectToScreen = true;
+/* Decisive bring-up test: draw the Glide geometry as flat opaque vertex color
+ * with depth + blend + texturing + discard all removed. If triangles show over
+ * the clear, the geometry rasterizes fine and the culprit is in the
+ * texture/discard/depth/blend path. If the screen stays the flat clear color,
+ * the geometry isn't rasterizing at all (NDC / attribute / draw-state). Set
+ * back to false to restore the real shader + per-drawcall state. */
+static const bool s_vitaDebugSolidColor = true;
+static const bool s_vitaDebugImmediateMode = true;
+static const bool s_vitaDebugImmediateTexture = true;
+static const char g_glFragmentShaderDebug[] = ""
+"#version 400\n"
+"in vec3 v_texCoord;"
+"in vec4 v_color;"
+"flat in vec4 v_combine;"
+"flat in vec4 v_atlasInfo;"
+"layout (location=0) out vec4 o_color;"
+"uniform sampler2D u_texture;"
+"void main()"
+"{"
+"    o_color = vec4(v_color.rgb, 1.0);"
+"}";
+#endif
+
+#if !defined(__vita__)
 static PFNGLBLENDFUNCSEPARATEPROC glBlendFuncSeparate;
 static PFNGLATTACHSHADERPROC glAttachShader;
 static PFNGLCOMPILESHADERPROC glCompileShader;
@@ -42,6 +85,7 @@ static PFNGLDELETERENDERBUFFERSPROC glDeleteRenderbuffers;
 static PFNGLBINDRENDERBUFFERPROC glBindRenderbuffer;
 static PFNGLRENDERBUFFERSTORAGEPROC glRenderbufferStorage;
 static PFNGLDRAWBUFFERSPROC glDrawBuffers;
+#endif // !__vita__
 
 static const char g_glVertexShader[] = ""
 "#version 400\n"
@@ -61,7 +105,13 @@ static const char g_glVertexShader[] = ""
 "    v_combine = g_combine;"
 "    v_color = g_color;"
 "    v_atlasInfo = g_atlasInfo;"
+#if defined(__vita__)
+/* vitaGL's GLSL translator won't expose the u_transform uniform location, so
+ * the ortho projection is baked into g_position on the CPU (see swap()). */
+"    gl_Position = vec4(g_position, 1.0);"
+#else
 "    gl_Position = u_transform * vec4(g_position, 1.0);"
+#endif
 "}";
 
 static const char g_glFragmentShader[] =
@@ -121,10 +171,15 @@ GlideRenderer::GlideRenderer(Renderer* renderer)
     ,   m_zBuffer(true)
     ,   m_zTest(true)
     ,   m_alphaBlend(true)
+    ,   m_chromakeyColor(0)
+    ,   m_alphaTestReference(0)
+    ,   m_chromakeyEnabled(false)
+    ,   m_alphaTestEnabled(false)
 {
     m_tmus[0] = new GlideTMU(s_atlasSize);
     //m_tmus[1] = new GlideTMU(s_atlasSize);
     m_renderer->setCurrent();
+#if !defined(__vita__)
     glBlendFuncSeparate = (PFNGLBLENDFUNCSEPARATEPROC)SDL_GL_GetProcAddress("glBlendFuncSeparate");
     NFS2_ASSERT(glBlendFuncSeparate);
     glAttachShader = (PFNGLATTACHSHADERPROC)SDL_GL_GetProcAddress("glAttachShader");
@@ -195,6 +250,7 @@ GlideRenderer::GlideRenderer(Renderer* renderer)
     NFS2_ASSERT(glRenderbufferStorage);
     glDrawBuffers = (PFNGLDRAWBUFFERSPROC)SDL_GL_GetProcAddress("glDrawBuffers");
     NFS2_ASSERT(glDrawBuffers);
+#endif // !__vita__
 
     compileShaders();
     glGenTextures(1, &m_atlas);
@@ -203,7 +259,11 @@ GlideRenderer::GlideRenderer(Renderer* renderer)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+#if defined(__vita__)
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, s_atlasSize, s_atlasSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+#else
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, s_atlasSize, s_atlasSize);
+#endif
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glEnable(GL_BLEND);
@@ -222,8 +282,28 @@ GlideRenderer::GlideRenderer(Renderer* renderer)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_renderer->m_texture, 0);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depthBuffer);
     GLenum drawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+#if !defined(__vita__)
     glDrawBuffers(1, drawBuffers);
+#else
+    (void)drawBuffers;
+#endif
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    /* One-shot bring-up diagnostic: confirm the render-to-texture FBO is
+     * complete on vitaGL and that the GLSL translator kept our attribute /
+     * uniform names. A black screen with the renderer otherwise running is
+     * almost always an incomplete FBO (RGB565 color attachment) or attribute
+     * locations coming back as -1. */
+    glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
+    GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    SDL_Log("[glide-diag] FBO status=0x%04x (complete=0x%04x) program=%u tex=%u atlas=%u %ux%u",
+            unsigned(fbStatus), unsigned(GL_FRAMEBUFFER_COMPLETE),
+            unsigned(m_shaderProgram), unsigned(m_renderer->m_texture), unsigned(m_atlas),
+            unsigned(m_renderer->m_width), unsigned(m_renderer->m_height));
+    SDL_Log("[glide-diag] attribs pos=%d color=%d tex=%d combine=%d atlas=%d  u_transform=%d  glErr=0x%04x",
+            m_attributes[0], m_attributes[1], m_attributes[2], m_attributes[3], m_attributes[4],
+            m_transform, unsigned(glGetError()));
 
     m_renderer->clearCurrent();
 }
@@ -242,6 +322,14 @@ void GlideRenderer::compileShaders()
     const GLint fragmentShaderLen = sizeof(g_glFragmentShader) - 1;
     const GLchar* vertexShaderSrc = g_glVertexShader;
     const GLchar* fragmentShaderSrc = g_glFragmentShader;
+    GLint fragLen = fragmentShaderLen;
+#if defined(__vita__)
+    if (s_vitaDebugSolidColor)
+    {
+        fragmentShaderSrc = g_glFragmentShaderDebug;
+        fragLen = sizeof(g_glFragmentShaderDebug) - 1;
+    }
+#endif
     GLint status = 0;
 
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -263,7 +351,7 @@ void GlideRenderer::compileShaders()
         }
     }
     fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &fragmentShaderSrc, &fragmentShaderLen);
+    glShaderSource(fragmentShader, 1, &fragmentShaderSrc, &fragLen);
     glCompileShader(fragmentShader);
 
     glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &status);
@@ -284,6 +372,17 @@ void GlideRenderer::compileShaders()
     m_shaderProgram = glCreateProgram();
     glAttachShader(m_shaderProgram, vertexShader);
     glAttachShader(m_shaderProgram, fragmentShader);
+#if defined(__vita__)
+    /* vitaGL's runtime GLSL->GXM translator does not support querying attribute
+     * locations by name (glGetAttribLocation returns -1 for all of them, which
+     * silently kills every glVertexAttribPointer -> black screen). Pin the
+     * locations explicitly before linking and use these fixed indices below. */
+    glBindAttribLocation(m_shaderProgram, 0, "g_position");
+    glBindAttribLocation(m_shaderProgram, 1, "g_color");
+    glBindAttribLocation(m_shaderProgram, 2, "g_texCoord");
+    glBindAttribLocation(m_shaderProgram, 3, "g_combine");
+    glBindAttribLocation(m_shaderProgram, 4, "g_atlasInfo");
+#endif
     glLinkProgram(m_shaderProgram);
 
     glGetProgramiv(m_shaderProgram, GL_LINK_STATUS, &status);
@@ -300,19 +399,41 @@ void GlideRenderer::compileShaders()
             free(log);
         }
     }
+#if defined(__vita__)
+    /* Use the locations pinned via glBindAttribLocation above; glGetAttribLocation
+     * is unreliable on vitaGL's translator. */
+    m_attributes[0] = 0;
+    m_attributes[1] = 1;
+    m_attributes[2] = 2;
+    m_attributes[3] = 3;
+    m_attributes[4] = 4;
+#else
     m_attributes[0] = glGetAttribLocation(m_shaderProgram, "g_position");
     m_attributes[1] = glGetAttribLocation(m_shaderProgram, "g_color");
     m_attributes[2] = glGetAttribLocation(m_shaderProgram, "g_texCoord");
     m_attributes[3] = glGetAttribLocation(m_shaderProgram, "g_combine");
     m_attributes[4] = glGetAttribLocation(m_shaderProgram, "g_atlasInfo");
+#endif
     m_transform = glGetUniformLocation(m_shaderProgram, "u_transform");
     //glUniform1i(glGetUniformLocation(m_shaderProgram, "u_texture"), 0);
 }
 
 void GlideRenderer::clear(x86::reg32 color)
 {
+    SDL_Log("[glide-renderer] clear color=0x%08x", unsigned(color));
     m_renderer->setCurrent();
     glDepthMask(true);
+#if defined(__vita__)
+    if (s_vitaDirectToScreen)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glClearColor(float(color >> 16 & 0xff)/255.0f, float(color >> 8 & 0xff)/255.0f, float(color >> 0 & 0xff)/255.0f, 0.0f);
+        glClearDepth(1.0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        m_renderer->clearCurrent();
+        return;
+    }
+#endif
     glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_renderer->m_texture, 0);
     glClearColor(float(color >> 16 & 0xff)/255.0f, float(color >> 8 & 0xff)/255.0f, float(color >> 0 & 0xff)/255.0f, 0.0f);
@@ -324,6 +445,7 @@ void GlideRenderer::clear(x86::reg32 color)
 
 void GlideRenderer::render(x86::reg32 buffer)
 {
+    SDL_Log("[glide-renderer] render buffer=%u", unsigned(buffer));
     m_renderer->m_currentBuffer = buffer;
 }
 
@@ -339,11 +461,173 @@ void GlideRenderer::flush()
 
 void GlideRenderer::swap()
 {
+    SDL_Log("[glide-renderer] swap vertexCount=%u drawCalls=%u", unsigned(m_vertexCount), unsigned(m_drawCalls.size()));
     m_renderer->setCurrent();
+#if defined(__vita__)
+    if (s_vitaDirectToScreen)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (m_vertexCount)
+        {
+            flush();
+            int vpX, vpY, vpW, vpH;
+            m_renderer->getLetterboxViewport(vpX, vpY, vpW, vpH);
+            SDL_Log("[glide-diag] viewport x=%d y=%d w=%d h=%d", vpX, vpY, vpW, vpH);
+            glViewport(vpX, vpY, vpW, vpH);
+#if defined(__vita__)
+            if (s_vitaDebugImmediateMode)
+            {
+                glDisable(GL_SCISSOR_TEST);
+                glUseProgram(0);
+                if (s_vitaDebugImmediateTexture)
+                {
+                    glEnable(GL_TEXTURE_2D);
+                    glBindTexture(GL_TEXTURE_2D, m_atlas);
+                    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+                    if (m_alphaTestEnabled || m_chromakeyEnabled)
+                    {
+                        glEnable(GL_ALPHA_TEST);
+                        glAlphaFunc(GL_GREATER, float(m_alphaTestReference) / 255.0f);
+                    }
+                    else
+                    {
+                        glDisable(GL_ALPHA_TEST);
+                    }
+                }
+                else
+                {
+                    glDisable(GL_TEXTURE_2D);
+                    glDisable(GL_ALPHA_TEST);
+                }
+                glDepthFunc(GL_LEQUAL);
+                glMatrixMode(GL_PROJECTION);
+                glLoadIdentity();
+                glOrtho(0, m_renderer->m_width, m_renderer->m_height, 0, 0, -65536.0f);
+                glMatrixMode(GL_MODELVIEW);
+                glLoadIdentity();
+                x86::reg32 first = 0;
+                for (std::vector<DrawCall>::const_iterator it = m_drawCalls.begin(); it != m_drawCalls.end(); ++it)
+                {
+                    if (it->zTest)
+                        glEnable(GL_DEPTH_TEST);
+                    else
+                        glDisable(GL_DEPTH_TEST);
+                    glDepthMask(it->zBuffer ? GL_TRUE : GL_FALSE);
+                    glEnable(GL_BLEND);
+                    if (it->alphaBlend)
+                    {
+                        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    }
+                    else
+                    {
+                        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+                    }
+                    glBegin(GL_TRIANGLES);
+                    for (x86::reg32 i = first; i < it->lastTriangle; ++i)
+                    {
+                        const x86::reg32 color = m_vertices[i].color;
+                        if (s_vitaDebugImmediateTexture)
+                        {
+                            const float invOow = m_vertices[i].u2 != 0.0f ? (1.0f / m_vertices[i].u2) : 0.0f;
+                            float texelS = m_vertices[i].u * invOow * m_vertices[i].width / 256.0f;
+                            float texelT = m_vertices[i].v * invOow * m_vertices[i].width / 256.0f;
+                            if (texelS < 0.0f)
+                                texelS = 0.0f;
+                            else if (texelS > m_vertices[i].width - 1.0f)
+                                texelS = m_vertices[i].width - 1.0f;
+                            if (texelT < 0.0f)
+                                texelT = 0.0f;
+                            else if (texelT > m_vertices[i].width - 1.0f)
+                                texelT = m_vertices[i].width - 1.0f;
+                            glTexCoord2f((m_vertices[i].offX + texelS) / float(s_atlasSize),
+                                         (m_vertices[i].offY + texelT) / float(s_atlasSize));
+                        }
+                        float r = float(color & 0xff) / 255.0f;
+                        float g = float((color >> 8) & 0xff) / 255.0f;
+                        float b = float((color >> 16) & 0xff) / 255.0f;
+                        float a = float((color >> 24) & 0xff) / 255.0f;
+                        glColor4f(r, g, b, a);
+                        glVertex3f(m_vertices[i].x, m_vertices[i].y, m_vertices[i].z);
+                    }
+                    glEnd();
+                    first = it->lastTriangle;
+                }
+                glDepthMask(GL_TRUE);
+                glDisable(GL_BLEND);
+                glDisable(GL_ALPHA_TEST);
+                m_drawCalls.clear();
+                glFlush();
+                m_renderer->finishFrame();
+                m_renderer->clearCurrent();
+                m_vertexCount = 0;
+                return;
+            }
+#endif
+            glUseProgram(m_shaderProgram);
+            /* Bake the ortho projection into the positions (vitaGL can't set
+             * u_transform); identical to the offscreen path below. */
+            const float sx = 2.0f / float(m_renderer->m_width);
+            const float sy = 2.0f / float(m_renderer->m_height);
+            const float sz = 1.0f / 32768.0f;
+            for (x86::reg32 i = 0; i < m_vertexCount; ++i)
+            {
+                m_vertices[i].x = m_vertices[i].x * sx - 1.0f;
+                m_vertices[i].y = m_vertices[i].y * sy - 1.0f;
+                m_vertices[i].z = m_vertices[i].z * sz - 1.0f;
+            }
+            glBindTexture(GL_TEXTURE_2D, m_atlas);
+            glBindBuffer(GL_ARRAY_BUFFER, m_vertexBuffer);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(GlVertex)*m_vertexCount, m_vertices, GL_STREAM_DRAW);
+            glVertexAttribPointer(m_attributes[0], 3, GL_FLOAT, GL_FALSE, sizeof(GlVertex), 0);
+            glEnableVertexAttribArray(m_attributes[0]);
+            glVertexAttribPointer(m_attributes[1], 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GlVertex), (const void*)(4*3));
+            glEnableVertexAttribArray(m_attributes[1]);
+            glVertexAttribPointer(m_attributes[2], 2, GL_FLOAT, GL_FALSE, sizeof(GlVertex), (const void*)(4*4));
+            glEnableVertexAttribArray(m_attributes[2]);
+            glVertexAttribPointer(m_attributes[3], 4, GL_FLOAT, GL_FALSE, sizeof(GlVertex), (const void*)(4*6));
+            glEnableVertexAttribArray(m_attributes[3]);
+            glVertexAttribPointer(m_attributes[4], 4, GL_FLOAT, GL_FALSE, sizeof(GlVertex), (const void*)(4*10));
+            glEnableVertexAttribArray(m_attributes[4]);
+            x86::reg32 first = 0;
+            for (std::vector<DrawCall>::const_iterator it = m_drawCalls.begin(); it != m_drawCalls.end(); ++it)
+            {
+                if (s_vitaDebugSolidColor)
+                {
+                    /* Remove depth/blend as variables for the bring-up test. */
+                    glDisable(GL_DEPTH_TEST);
+                    glDisable(GL_BLEND);
+                    glDepthMask(GL_FALSE);
+                }
+                else
+                {
+                    if (it->zTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+                    glEnable(GL_BLEND);
+                    glDepthMask(it->zBuffer ? GL_TRUE : GL_FALSE);
+                    if (it->alphaBlend)
+                        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
+                    else
+                        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ONE, GL_ZERO);
+                }
+                glDrawArrays(GL_TRIANGLES, first, it->lastTriangle-first);
+                first = it->lastTriangle;
+            }
+            m_drawCalls.clear();
+        }
+        glUseProgram(0);
+        m_renderer->finishFrame();
+        m_renderer->clearCurrent();
+        m_vertexCount = 0;
+        return;
+    }
+#endif
     glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_renderer->m_texture, 0);
     const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay());
+#if !defined(__vita__)
     SDL_GL_SetSwapInterval(mode ? (int)(mode->refresh_rate / 60) : 1);
+#else
+    (void)mode;
+#endif
     if (m_vertexCount)
     {
         flush();
@@ -354,9 +638,27 @@ void GlideRenderer::swap()
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
         glUseProgram(m_shaderProgram);
+#if defined(__vita__)
+        /* Bake the ortho projection (glOrtho(0,w,0,h,0,-65536)) into the vertex
+         * positions on the CPU, because vitaGL can't set the u_transform uniform.
+         * The shader then uses gl_Position = vec4(g_position,1). w stays 1 under
+         * ortho, so CPU result == GPU result. */
+        {
+            const float sx = 2.0f / float(m_renderer->m_width);
+            const float sy = 2.0f / float(m_renderer->m_height);
+            const float sz = 1.0f / 32768.0f;
+            for (x86::reg32 i = 0; i < m_vertexCount; ++i)
+            {
+                m_vertices[i].x = m_vertices[i].x * sx - 1.0f;
+                m_vertices[i].y = m_vertices[i].y * sy - 1.0f;
+                m_vertices[i].z = m_vertices[i].z * sz - 1.0f;
+            }
+        }
+#else
         float matrix[16];
         glGetFloatv(GL_PROJECTION_MATRIX, matrix);
         glUniformMatrix4fv(m_transform, 1, GL_FALSE, matrix);
+#endif
         glBindTexture(GL_TEXTURE_2D, m_atlas);
         glBindBuffer(GL_ARRAY_BUFFER, m_vertexBuffer);
         glBufferData(GL_ARRAY_BUFFER, sizeof(GlVertex)*m_vertexCount, m_vertices, GL_STREAM_DRAW);
@@ -458,6 +760,26 @@ void GlideRenderer::setAlphaFactor(float alphaFactor)
     m_alphaFactor = alphaFactor;
 }
 
+void GlideRenderer::setChromakeyValue(x86::reg32 color)
+{
+    m_chromakeyColor = color & 0x00ffffff;
+}
+
+void GlideRenderer::setChromakeyEnabled(bool enabled)
+{
+    m_chromakeyEnabled = enabled;
+}
+
+void GlideRenderer::setAlphaTestReference(x86::reg8 value)
+{
+    m_alphaTestReference = value;
+}
+
+void GlideRenderer::setAlphaTestEnabled(bool enabled)
+{
+    m_alphaTestEnabled = enabled;
+}
+
 void GlideRenderer::setTexture(x86::reg32 tmu, x86::reg32 address)
 {
     NFS2_ASSERT(tmu == 0);
@@ -485,13 +807,49 @@ void GlideRenderer::setTextureData(x86::reg32 tmu, x86::reg32 address, const voi
 
     x86::reg32 x = (*info)->x;
     x86::reg32 y = (*info)->y;
+#if defined(__vita__)
+    x86::reg8* textureData = reinterpret_cast<x86::reg8*>(malloc(largeMipmapSize*largeMipmapSize*4));
+#else
     x86::reg32* textureData = reinterpret_cast<x86::reg32*>(malloc(largeMipmapSize*largeMipmapSize*4));
+#endif
     x86::reg32 lod = 0;
     for (; largeMipmapSize >= smallMipmapSize; ++lod, largeMipmapSize >>= 1)
     {
         const x86::reg16* pixelData = reinterpret_cast<const x86::reg16*>(data);
         for (x86::reg32 i = 0; i < largeMipmapSize*largeMipmapSize; ++i)
         {
+#if defined(__vita__)
+            x86::reg8 r = 0;
+            x86::reg8 g = 0;
+            x86::reg8 b = 0;
+            x86::reg8 a = 0xff;
+            switch(format)
+            {
+            case TF_RGB_565:
+                r = x86::reg8(((pixelData[i] >> 11) & 0x1f) * 255 / 31);
+                g = x86::reg8(((pixelData[i] >> 5) & 0x3f) * 255 / 63);
+                b = x86::reg8((pixelData[i] & 0x1f) * 255 / 31);
+                break;
+            case TF_ARGB_1555:
+                r = x86::reg8(((pixelData[i] >> 10) & 0x1f) * 255 / 31);
+                g = x86::reg8(((pixelData[i] >> 5) & 0x1f) * 255 / 31);
+                b = x86::reg8((pixelData[i] & 0x1f) * 255 / 31);
+                a = (pixelData[i] & 0x8000) ? 0xff : 0x00;
+                break;
+            case TF_ARGB_4444:
+                r = x86::reg8(((pixelData[i] >> 8) & 0xf) * 17);
+                g = x86::reg8(((pixelData[i] >> 4) & 0xf) * 17);
+                b = x86::reg8((pixelData[i] & 0xf) * 17);
+                a = x86::reg8(((pixelData[i] >> 12) & 0xf) * 17);
+                break;
+            default:
+                NFS2_ASSERT(false);
+            }
+            textureData[i * 4 + 0] = r;
+            textureData[i * 4 + 1] = g;
+            textureData[i * 4 + 2] = b;
+            textureData[i * 4 + 3] = a;
+#else
             textureData[i] = 0;
             switch(format)
             {
@@ -526,8 +884,13 @@ void GlideRenderer::setTextureData(x86::reg32 tmu, x86::reg32 address, const voi
             default:
                 NFS2_ASSERT(false);
             }
+#endif
         }
+#if defined(__vita__)
+        glTexSubImage2D(GL_TEXTURE_2D, lod, x, y, largeMipmapSize, largeMipmapSize, GL_RGBA, GL_UNSIGNED_BYTE, textureData);
+#else
         glTexSubImage2D(GL_TEXTURE_2D, lod, x, y, largeMipmapSize, largeMipmapSize, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, textureData);
+#endif
         data = pixelData + largeMipmapSize * largeMipmapSize;
         break;
     }

@@ -7,7 +7,6 @@ namespace win32
 {
 
 SDL_AtomicU32 s_threadCount = {1};
-thread_local x86::reg32 s_threadId = 1;
 
 Thread::Data::Data(WinApplication* app, x86::reg32 entryPoint, x86::reg32 parameter, x86::reg32 flags)
     :   m_app(app)
@@ -64,7 +63,7 @@ void Thread::resume()
 
 x86::reg32 Thread::currentThreadId()
 {
-    return s_threadId;
+    return (x86::reg32)SDL_GetCurrentThreadID();
 }
  
 void Thread::terminate()
@@ -96,7 +95,6 @@ void Thread::sleep(x86::reg32 milliseconds)
 int Thread::run(void* data)
 {
     Thread* thread = (Thread*)data;
-    s_threadId = thread->m_data.m_threadId;
     if (thread->m_semaphore)
     {
         SDL_WaitSemaphore(thread->m_semaphore);

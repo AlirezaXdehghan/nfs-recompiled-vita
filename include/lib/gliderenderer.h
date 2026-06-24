@@ -69,6 +69,10 @@ public:
     void setAlphaBlendDst(AlphaBlend method);
     void setColorFactor(float colorFactor);
     void setAlphaFactor(float alphaFactor);
+    void setChromakeyValue(x86::reg32 color);
+    void setChromakeyEnabled(bool enabled);
+    void setAlphaTestReference(x86::reg8 value);
+    void setAlphaTestEnabled(bool enabled);
     void setTexture(x86::reg32 tmu, x86::reg32 address);
     void setTextureData(x86::reg32 tmu, x86::reg32 address, const void* data,
                         x86::reg32 largeMipmap, x86::reg32 smallMimmap, TextureFormat format);
@@ -97,6 +101,10 @@ private:
     x86::reg32              m_textureOffsetW;
     float                   m_colorFactor;
     float                   m_alphaFactor;
+    x86::reg32              m_chromakeyColor;
+    x86::reg8               m_alphaTestReference;
+    bool                    m_chromakeyEnabled;
+    bool                    m_alphaTestEnabled;
     bool                    m_zBuffer;
     bool                    m_zTest;
     bool                    m_alphaBlend;

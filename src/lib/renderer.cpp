@@ -2,12 +2,19 @@
 #include <lib/window.h>
 #include <lib/gamepad.h>
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_opengl.h>
-#include <GL/gl.h>
+#if defined(__vita__)
+/* vitaGL supplies the GL symbols and enums; the desktop SDL_opengl/GL headers
+ * would clash with it, so pull in vitaGL alone on Vita. */
+# include <vitaGL.h>
+#else
+# include <SDL3/SDL_opengl.h>
+# include <GL/gl.h>
+#endif
 
 namespace win32
 {
 
+#if !defined(__vita__)
 void GLAPIENTRY errorCallback(GLenum /*source*/, GLenum type, GLuint /*id*/, GLenum severity, GLsizei /*length*/, const GLchar* message, const void* /*userParam*/)
 {
     if (severity != GL_DEBUG_SEVERITY_NOTIFICATION)
@@ -16,17 +23,43 @@ void GLAPIENTRY errorCallback(GLenum /*source*/, GLenum type, GLuint /*id*/, GLe
             type, severity, message);
 }
 PFNGLDEBUGMESSAGECALLBACKPROC glDebugMessageCallback;
+#endif
 
 Renderer::Renderer(WinApplication* application, Window *window)
     :   m_application(application)
     ,   m_window(window)
-    ,   m_renderer(SDL_GL_CreateContext(m_window->m_window))
+    ,   m_renderer(
+#if defined(__vita__)
+            nullptr /* vitaGL doesn't use SDL GL contexts */
+#else
+            SDL_GL_CreateContext(m_window->m_window)
+#endif
+        )
     ,   m_videoMemory(new MemMap(800*600*2*2)) // double buffer 16 bits 800x600
     ,   m_currentBuffer(0)
     ,   m_depth(16)
     ,   m_colorPalette()
 {
     setCurrent();
+#if defined(__vita__)
+    static bool s_vglInitDone = false;
+    if (!s_vglInitDone) {
+        SDL_Log("[renderer] vglInit");
+        vglInit(0x800000);
+        vglUseExtraMem(GL_TRUE);
+        s_vglInitDone = true;
+    } else {
+        SDL_Log("[renderer] vglInit skipped (already done)");
+    }
+    /* Open the Vita pad once, here, so it drives input from the very first menu
+     * even before the game opens a DirectInput device. The function-static is
+     * constructed once for the process (no leak, no double-open). It becomes the
+     * keyboard-synthesis source (s_gp1) that updateKeys() polls each frame; any
+     * DirectInput pad the game opens later reads the same physical joystick 0
+     * independently, so the two coexist. Without this, a Vita (which has no
+     * physical keyboard) could boot with no usable input at all. */
+    SDL_Log("[renderer] skipping Gamepad on Vita (Vita3K debugging)");
+#else
     SDL_GL_SetSwapInterval(1);
     glDebugMessageCallback = (PFNGLDEBUGMESSAGECALLBACKPROC)SDL_GL_GetProcAddress("glDebugMessageCallback");
     if (glDebugMessageCallback)
@@ -34,37 +67,53 @@ Renderer::Renderer(WinApplication* application, Window *window)
         glEnable(GL_DEBUG_OUTPUT);
         glDebugMessageCallback(errorCallback, 0);
     }
+#endif
 
+    SDL_Log("[renderer] before glGenTextures");
     glGenTextures(1, &m_texture);
+    SDL_Log("[renderer] before glBindTexture");
     glBindTexture(GL_TEXTURE_2D, m_texture);
+    SDL_Log("[renderer] before glEnable");
     glEnable(GL_TEXTURE_2D);
 
     clearCurrent();
+    SDL_Log("[renderer] constructor done");
 }
 
 Renderer::~Renderer()
 {
+#if !defined(__vita__)
     SDL_GL_DestroyContext(static_cast<SDL_GLContext>(m_renderer));
+#endif
 }
 
 void Renderer::setCurrent()
 {
+#if !defined(__vita__)
     SDL_GL_MakeCurrent(m_window->m_window, static_cast<SDL_GLContext>(m_renderer));
+#endif
 }
 
 void Renderer::clearCurrent()
 {
+#if !defined(__vita__)
     SDL_GL_MakeCurrent(m_window->m_window, nullptr);
+#endif
 }
 
 void Renderer::setVideoMode(x86::reg32 w, x86::reg32 h, x86::reg32 bpp)
 {
+    SDL_Log("[renderer] setVideoMode %ux%u bpp=%u", unsigned(w), unsigned(h), unsigned(bpp));
     m_width = w;
     m_height = h;
     m_depth = bpp;
     setCurrent();
     glBindTexture(GL_TEXTURE_2D, m_texture);
+#if defined(__vita__)
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+#else
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_width, m_height, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, nullptr);
+#endif
     clearCurrent();
     //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, nullptr);
 }
@@ -88,6 +137,19 @@ x86::reg32 Renderer::getBackBuffer() const
 void Renderer::present()
 {
     Gamepad::updateKeys();
+#if defined(__vita__)
+    static int s_frameCount = 0;
+    if ((s_frameCount++ % 30) == 0)
+        SDL_Log("[renderer] present() frame %d", s_frameCount);
+    glUseProgram(0);
+    glEnable(GL_TEXTURE_2D);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_ALPHA_TEST);
+    glDepthMask(GL_TRUE);
+    glColor4f(1.f, 1.f, 1.f, 1.f);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+#endif
     glBindTexture(GL_TEXTURE_2D, m_texture);
     int w, h;
     SDL_GetWindowSizeInPixels(m_window->m_window, &w, &h);
@@ -138,8 +200,43 @@ void Renderer::present()
         glVertex3f(0.f, GLfloat(m_height), 1.f);
     glEnd();
     glFlush();
+#if defined(__vita__)
+    vglSwapBuffers(GL_FALSE);
+#else
     SDL_GL_SwapWindow(m_window->m_window);
+#endif
 }
+
+#if defined(__vita__)
+void Renderer::getLetterboxViewport(int& x, int& y, int& w, int& h)
+{
+    int winW, winH;
+    SDL_GetWindowSizeInPixels(m_window->m_window, &winW, &winH);
+    float gameAspect = float(m_width) / float(m_height);
+    float windowAspect = float(winW) / float(winH);
+    if (windowAspect > gameAspect)
+    {
+        h = winH;
+        w = int(winH * gameAspect + 0.5f);
+        x = (winW - w) / 2;
+        y = 0;
+    }
+    else
+    {
+        w = winW;
+        h = int(winW / gameAspect + 0.5f);
+        x = 0;
+        y = (winH - h) / 2;
+    }
+}
+
+void Renderer::finishFrame()
+{
+    Gamepad::updateKeys();
+    glFlush();
+    vglSwapBuffers(GL_FALSE);
+}
+#endif
 
 void Renderer::update()
 {
@@ -149,18 +246,45 @@ void Renderer::update()
     if (m_depth == 16)
     {
         //MemMap::fillDebugGraph(&m_application->getMemory<x86::reg16>(getFrontBuffer()) + m_width*2);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_width, m_height, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, &m_application->getMemory<x86::reg16>(getFrontBuffer()));
+#if defined(__vita__)
+        const x86::reg16* srcData = &m_application->getMemory<x86::reg16>(getFrontBuffer());
+        x86::reg8* screenData = reinterpret_cast<x86::reg8*>(malloc(m_width * m_height * 4));
+        for (x86::reg32 i = 0; i < m_width*m_height; ++i)
+        {
+            const x86::reg16 pixel = srcData[i];
+            screenData[i * 4 + 0] = x86::reg8(((pixel >> 11) & 0x1f) * 255 / 31);
+            screenData[i * 4 + 1] = x86::reg8(((pixel >> 5) & 0x3f) * 255 / 63);
+            screenData[i * 4 + 2] = x86::reg8((pixel & 0x1f) * 255 / 31);
+            screenData[i * 4 + 3] = 0xff;
+        }
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_width, m_height, GL_RGBA, GL_UNSIGNED_BYTE, screenData);
+        free(screenData);
+#else
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_width, m_height, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, &m_application->getMemory<x86::reg16>(getFrontBuffer()));
+#endif
     }
     else
     {
         x86::reg8* srcData = &m_application->getMemory<x86::reg8>(getFrontBuffer());
+#if defined(__vita__)
+        x86::reg8* screenData = reinterpret_cast<x86::reg8*>(malloc(m_width * m_height * 4));
+        for (x86::reg32 i = 0; i < m_width*m_height; ++i)
+        {
+            const x86::reg32 color = m_colorPalette[srcData[i]];
+            screenData[i * 4 + 0] = x86::reg8(color >> 24);
+            screenData[i * 4 + 1] = x86::reg8(color >> 16);
+            screenData[i * 4 + 2] = x86::reg8(color >> 8);
+            screenData[i * 4 + 3] = x86::reg8(color);
+        }
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_width, m_height, GL_RGBA, GL_UNSIGNED_BYTE, screenData);
+#else
         x86::reg32* screenData = reinterpret_cast<x86::reg32*>(malloc(m_width * m_height * 4));
         for (x86::reg32 i = 0; i < m_width*m_height; ++i)
         {
             screenData[i] = m_colorPalette[srcData[i]];
         }
-        //MemMap::fillDebugGraph(screenData + m_width*2);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, screenData);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_width, m_height, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, screenData);
+#endif
         free(screenData);
     }
     present();
@@ -175,8 +299,11 @@ void Renderer::unlock(x86::reg32 index)
 {
     if (index == 0)
     {
+        SDL_Log("[renderer] unlock front buffer");
         setCurrent();
+#if !defined(__vita__)
         SDL_GL_SetSwapInterval(0);
+#endif
         update();
         clearCurrent();
     }
@@ -184,9 +311,12 @@ void Renderer::unlock(x86::reg32 index)
 
 void Renderer::swap()
 {
+    SDL_Log("[renderer] swap begin buffer=%u size=%ux%u depth=%u", unsigned(m_currentBuffer), unsigned(m_width), unsigned(m_height), unsigned(m_depth));
     setCurrent();
     const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay());
+#if !defined(__vita__)
     SDL_GL_SetSwapInterval(1);
+#endif
     m_currentBuffer = 1 - m_currentBuffer;
     for (int i = 0; i < (mode ? (int)(mode->refresh_rate / 30) : 2); ++i)
     {

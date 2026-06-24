@@ -104,6 +104,8 @@ HANDLE CreateFileA(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(dwShareMode);
     NFS2_USE(lpSecurityAttributes);
     NFS2_USE(hTemplateFile);
+    SDL_Log("[kernel32] CreateFileA %s access=0x%08x disposition=%u flags=0x%08x",
+            lpFileName ? lpFileName : "(null)", unsigned(dwDesiredAccess), unsigned(dwCreationDisposition), unsigned(dwFlagsAndAttributes));
     win32::File* file = new win32::File(lpFileName, dwDesiredAccess, dwFlagsAndAttributes, dwCreationDisposition);
     if (*file)
     {
@@ -184,6 +186,7 @@ BOOL DeleteFileA(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
+    SDL_Log("[kernel32] DeleteFileA %s", lpFileName ? lpFileName : "(null)");
     return File::remove(lpFileName);
 }
 
@@ -874,8 +877,9 @@ BOOL MoveFileA(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(lpExistingFileName);
-    NFS2_USE(lpNewFileName);
+    SDL_Log("[kernel32] MoveFileA %s -> %s",
+            lpExistingFileName ? lpExistingFileName : "(null)",
+            lpNewFileName ? lpNewFileName : "(null)");
     NFS2_ASSERT(false);
     return 0;
 }
@@ -982,7 +986,7 @@ BOOL RemoveDirectoryA(WinApplication* app, x86::CPU& cpu, LPCSTR lpPathName)
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(lpPathName);
+    SDL_Log("[kernel32] RemoveDirectoryA %s", lpPathName ? lpPathName : "(null)");
     NFS2_ASSERT(false);
     return 0;
 }
@@ -1066,6 +1070,7 @@ BOOL SetCurrentDirectoryA(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
+    SDL_Log("[kernel32] SetCurrentDirectoryA %s", lpPathName ? lpPathName : "(null)");
     File::setCurrentDirectory(lpPathName);
     return 1;
 }
@@ -1408,6 +1413,7 @@ BOOL WriteFile(WinApplication* app, x86::CPU& cpu,
     }
     else
     {
+        SDL_Log("[kernel32] WriteFile %s bytes=%u", f->getFilename().c_str(), unsigned(nNumberOfBytesToWrite));
         app->unlockContext(cpu);
         x86::reg32 result = f->write(lpBuffer, nNumberOfBytesToWrite, lpNumberOfBytesWritten);
         app->lockContext(cpu);

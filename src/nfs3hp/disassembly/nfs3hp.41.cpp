@@ -11989,6 +11989,7 @@ void Application::sub_4ff338(WinApplication* app, x86::CPU& cpu)
 {
   NFS2_USE(cpu);
   NFS2_USE(app);
+    SDL_Log("[nfs3hp] enter sub_4ff338 esp=0x%08x eax=0x%08x edx=0x%08x", unsigned(cpu.esp), unsigned(cpu.eax), unsigned(cpu.edx));
     // 004ff338  53                     -push ebx
     app->getMemory<x86::reg32>(cpu.esp-4) = cpu.ebx;
     cpu.esp -= 4;
@@ -12005,14 +12006,17 @@ void Application::sub_4ff338(WinApplication* app, x86::CPU& cpu)
     cpu.esi = cpu.eax;
     // 004ff33e  89d7                   -mov edi, edx
     cpu.edi = cpu.edx;
+    SDL_Log("[nfs3hp] sub_4ff338 setup esi=0x%08x edi=0x%08x", unsigned(cpu.esi), unsigned(cpu.edi));
     // 004ff340  6a00                   -push 0
     app->getMemory<x86::reg32>(cpu.esp-4) = 0 /*0x0*/;
     cpu.esp -= 4;
     // 004ff342  2eff154c455300         -call dword ptr cs:[0x53454c]
     cpu.ip = app->getMemory<x86::reg32>(cpu.ecs + x86::reg32(5457228) /* 0x53454c */);
+    SDL_Log("[nfs3hp] sub_4ff338 before dynamic 0x53454c ip=0x%08x", unsigned(cpu.ip));
     cpu.esp -= 4;
     app->dynamic_call(cpu.ip, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4ff338 after dynamic eax=0x%08x", unsigned(cpu.eax));
     // 004ff349  89c3                   -mov ebx, eax
     cpu.ebx = cpu.eax;
     // 004ff34b  89fa                   -mov edx, edi
@@ -12020,43 +12024,57 @@ void Application::sub_4ff338(WinApplication* app, x86::CPU& cpu)
     // 004ff34d  31c0                   -xor eax, eax
     cpu.eax ^= x86::reg32(x86::sreg32(cpu.eax));
     // 004ff34f  e8b4fdffff             -call 0x4ff108
+    SDL_Log("[nfs3hp] sub_4ff338 before sub_4ff108 eax=0x%08x edx=0x%08x", unsigned(cpu.eax), unsigned(cpu.edx));
     cpu.esp -= 4;
     sub_4ff108(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4ff338 after sub_4ff108 eax=0x%08x edx=0x%08x", unsigned(cpu.eax), unsigned(cpu.edx));
     // 004ff354  ba1c785600             -mov edx, 0x56781c
     cpu.edx = 5666844 /*0x56781c*/;
     // 004ff359  ff1564775600           -call dword ptr [0x567764]
     cpu.ip = app->getMemory<x86::reg32>(x86::reg32(5666660) /* 0x567764 */);
+    SDL_Log("[nfs3hp] sub_4ff338 before dynamic 0x567764 ip=0x%08x edx=0x%08x", unsigned(cpu.ip), unsigned(cpu.edx));
     cpu.esp -= 4;
     app->dynamic_call(cpu.ip, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4ff338 after dynamic 0x567764 eax=0x%08x", unsigned(cpu.eax));
     // 004ff35f  e8bcf80100             -call 0x51ec20
+    SDL_Log("[nfs3hp] sub_4ff338 before sub_51ec20");
     cpu.esp -= 4;
     sub_51ec20(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4ff338 after sub_51ec20");
     // 004ff364  89f0                   -mov eax, esi
     cpu.eax = cpu.esi;
     // 004ff366  e865fd0100             -call 0x51f0d0
+    SDL_Log("[nfs3hp] sub_4ff338 before sub_51f0d0 eax=0x%08x", unsigned(cpu.eax));
     cpu.esp -= 4;
     sub_51f0d0(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4ff338 after sub_51f0d0");
     // 004ff36b  b821000000             -mov eax, 0x21
     cpu.eax = 33 /*0x21*/;
     // 004ff370  e8a7000000             -call 0x4ff41c
+    SDL_Log("[nfs3hp] sub_4ff338 before sub_4ff41c eax=0x%08x", unsigned(cpu.eax));
     cpu.esp -= 4;
     sub_4ff41c(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4ff338 after sub_4ff41c eax=0x%08x", unsigned(cpu.eax));
     // 004ff375  ff15a4775600           -call dword ptr [0x5677a4]
     cpu.ip = app->getMemory<x86::reg32>(x86::reg32(5666724) /* 0x5677a4 */);
+    SDL_Log("[nfs3hp] sub_4ff338 before dynamic 0x5677a4 ip=0x%08x", unsigned(cpu.ip));
     cpu.esp -= 4;
     app->dynamic_call(cpu.ip, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4ff338 after dynamic 0x5677a4 eax=0x%08x", unsigned(cpu.eax));
     // 004ff37b  b8ff000000             -mov eax, 0xff
     cpu.eax = 255 /*0xff*/;
     // 004ff380  e897000000             -call 0x4ff41c
+    SDL_Log("[nfs3hp] sub_4ff338 before sub_4ff41c second eax=0x%08x", unsigned(cpu.eax));
     cpu.esp -= 4;
     sub_4ff41c(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4ff338 after sub_4ff41c second");
     // 004ff385  5f                     -pop edi
     cpu.edi = app->getMemory<x86::reg32>(cpu.esp);
     cpu.esp += 4;
@@ -12070,6 +12088,7 @@ void Application::sub_4ff338(WinApplication* app, x86::CPU& cpu)
     cpu.ebx = app->getMemory<x86::reg32>(cpu.esp);
     cpu.esp += 4;
     // 004ff389  c3                     -ret 
+    SDL_Log("[nfs3hp] leave sub_4ff338 esp=0x%08x", unsigned(cpu.esp));
     cpu.esp += 4;
     return;
 }
@@ -12427,6 +12446,7 @@ void Application::sub_4ff41c(WinApplication* app, x86::CPU& cpu)
 {
   NFS2_USE(cpu);
   NFS2_USE(app);
+    SDL_Log("[nfs3hp] enter sub_4ff41c esp=0x%08x eax=0x%08x", unsigned(cpu.esp), unsigned(cpu.eax));
     // 004ff41c  53                     -push ebx
     app->getMemory<x86::reg32>(cpu.esp-4) = cpu.ebx;
     cpu.esp -= 4;
@@ -12447,6 +12467,7 @@ void Application::sub_4ff41c(WinApplication* app, x86::CPU& cpu)
     // 004ff426  88c6                   -mov dh, al
     cpu.dh = cpu.al;
 L_0x004ff428:
+    SDL_Log("[nfs3hp] sub_4ff41c loop esi=0x%08x dh=0x%02x", unsigned(cpu.esi), unsigned(unsigned(cpu.dh) & 0xff));
     // 004ff428  b8deb75600             -mov eax, 0x56b7de
     cpu.eax = 5683166 /*0x56b7de*/;
     // 004ff42d  89f3                   -mov ebx, esi
@@ -12528,6 +12549,7 @@ L_0x004ff445:
         goto L_0x004ff435;
     }
 L_0x004ff44f:
+    SDL_Log("[nfs3hp] sub_4ff41c candidate ebx=0x%08x", unsigned(cpu.ebx));
     // 004ff44f  81fb1ab85600           +cmp ebx, 0x56b81a
     {
         x86::reg32 tmp1 = cpu.ebx;

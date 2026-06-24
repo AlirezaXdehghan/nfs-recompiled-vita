@@ -11006,6 +11006,7 @@ void Application::sub_4a39f0(WinApplication* app, x86::CPU& cpu)
 {
   NFS2_USE(cpu);
   NFS2_USE(app);
+  SDL_Log("[nfs3hp] enter sub_4a39f0");
   goto start;
 dynamic_jump:
   switch(cpu.ip)
@@ -11039,9 +11040,11 @@ start:
     // 004a3a03  bacde85500             -mov edx, 0x55e8cd
     cpu.edx = 5630157 /*0x55e8cd*/;
     // 004a3a08  e8eb400500             -call 0x4f7af8
+    SDL_Log("[nfs3hp] sub_4a39f0 before sub_4f7af8");
     cpu.esp -= 4;
     sub_4f7af8(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4a39f0 after sub_4f7af8");
     // 004a3a0d  8955b8                 -mov dword ptr [ebp - 0x48], edx
     app->getMemory<x86::reg32>(cpu.ebp + x86::reg32(-72) /* -0x48 */) = cpu.edx;
     // 004a3a10  c745e00b000000         -mov dword ptr [ebp - 0x20], 0xb
@@ -11053,13 +11056,17 @@ start:
     // 004a3a1c  b820404a00             -mov eax, 0x4a4020
     cpu.eax = 4866080 /*0x4a4020*/;
     // 004a3a21  e8fa410500             -call 0x4f7c20
+    SDL_Log("[nfs3hp] sub_4a39f0 before sub_4f7c20");
     cpu.esp -= 4;
     sub_4f7c20(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4a39f0 after sub_4f7c20");
     // 004a3a26  e895feffff             -call 0x4a38c0
+    SDL_Log("[nfs3hp] sub_4a39f0 before sub_4a38c0");
     cpu.esp -= 4;
     sub_4a38c0(app, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4a39f0 after sub_4a38c0");
     // 004a3a2b  85c0                   +test eax, eax
     cpu.clear_co();
     cpu.set_szp(static_cast<x86::reg32>(cpu.eax & cpu.eax));
@@ -11105,10 +11112,12 @@ start:
     app->getMemory<x86::reg32>(cpu.esp-4) = cpu.ebx;
     cpu.esp -= 4;
     // 004a3a4a  2eff1564475300         -call dword ptr cs:[0x534764]
+    SDL_Log("[nfs3hp] sub_4a39f0 before dynamic 0x534764");
     cpu.ip = app->getMemory<x86::reg32>(cpu.ecs + x86::reg32(5457764) /* 0x534764 */);
     cpu.esp -= 4;
     app->dynamic_call(cpu.ip, cpu);
     if (cpu.terminate) return;
+    SDL_Log("[nfs3hp] sub_4a39f0 after dynamic 0x534764");
     // 004a3a51  e916050000             -jmp 0x4a3f6c
     goto L_0x004a3f6c;
 L_0x004a3a56:
