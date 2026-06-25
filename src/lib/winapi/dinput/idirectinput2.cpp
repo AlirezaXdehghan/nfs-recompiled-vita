@@ -69,20 +69,20 @@ HRESULT IDirectInput2::EnumDevices(WinApplication* app, x86::CPU& cpu,
 
     static const GUID s_joystickGUID = { 0x4251809a, 0x67be, 0, "NFS PAD" };
     static const GUID s_driverGUID = { 0x4251809a, 0x67bf, 0xffff, "NFS PAD" };
-    if (dwDevType == 4)
+    if (dwDevType == 0 || dwDevType == 4)
     {
         MemMap mem(1024);
         DIDEVICEINSTANCE* device = &app->getMemory<DIDEVICEINSTANCE>(mem.getBlockStart());
         device->dwSize = sizeof(DIDEVICEINSTANCE);
         for (x86::reg16 deviceIndex = 0; deviceIndex < Gamepad::getCount(); ++deviceIndex)
         {
-            device->dwDevType = dwDevType;
+            device->dwDevType = 4;
             device->guidInstance = s_joystickGUID;
             device->guidInstance.Data3 = deviceIndex;
             device->guidProduct = s_joystickGUID;
             device->guidProduct.Data3 = 0x1f1f;
-            strcpy(device->tszInstanceName, "NFS Gamepad");
-            strcpy(device->tszProductName, "NFS Gamepad");
+            strcpy(device->tszInstanceName, "PS Vita Controller");
+            strcpy(device->tszProductName, "PS Vita Controller");
             device->guidFFDriver = s_driverGUID;
             device->wUsagePage = 0;
             device->wUsage = 0;

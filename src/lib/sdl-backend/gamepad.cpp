@@ -15,9 +15,90 @@ static x86::reg32 s_kbPoll = 3;
 static GamepadState s_state;
 static Gamepad* s_gp1;
 
+#if defined(__vita__)
+static void initVitaCtrl()
+{
+    static bool s_ctrlInit = false;
+    if (!s_ctrlInit)
+    {
+        sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
+        s_ctrlInit = true;
+    }
+}
+
+static x86::sreg16 vitaAxis(x86::reg8 value)
+{
+    if (value == 0)
+        return -32768;
+    if (value == 255)
+        return 32767;
+    return (int(value) - 128) * 256;
+}
+
+static GamepadState getVitaState()
+{
+    initVitaCtrl();
+
+    GamepadState result;
+    memset(&result, 0, sizeof(result));
+    memset(result.hats, 0xff, sizeof(result.hats));
+
+    SceCtrlData pad;
+    memset(&pad, 0, sizeof(pad));
+    if (sceCtrlPeekBufferPositive(0, &pad, 1) < 0)
+        return result;
+
+    struct ButtonMap { unsigned int mask; x86::reg32 button; };
+    static const ButtonMap s_buttons[] = {
+        { SCE_CTRL_TRIANGLE, 0 },
+        { SCE_CTRL_CIRCLE, 1 },
+        { SCE_CTRL_CROSS, 2 },
+        { SCE_CTRL_SQUARE, 3 },
+        { SCE_CTRL_LTRIGGER, 4 },
+        { SCE_CTRL_RTRIGGER, 5 },
+        { SCE_CTRL_DOWN, 6 },
+        { SCE_CTRL_LEFT, 7 },
+        { SCE_CTRL_UP, 8 },
+        { SCE_CTRL_RIGHT, 9 },
+        { SCE_CTRL_SELECT, 10 },
+        { SCE_CTRL_START, 11 },
+    };
+    for (const ButtonMap& b : s_buttons)
+    {
+        if (pad.buttons & b.mask)
+            result.buttons |= 1ull << b.button;
+    }
+
+    result.axes[0] = vitaAxis(pad.lx);
+    result.axes[1] = vitaAxis(pad.ly);
+    result.axes[2] = vitaAxis(pad.rx);
+    result.axes[3] = vitaAxis(pad.ry);
+
+    x86::reg8 pov = 0xff;
+    const bool up = (pad.buttons & SCE_CTRL_UP) != 0;
+    const bool right = (pad.buttons & SCE_CTRL_RIGHT) != 0;
+    const bool down = (pad.buttons & SCE_CTRL_DOWN) != 0;
+    const bool left = (pad.buttons & SCE_CTRL_LEFT) != 0;
+    if (up && right) pov = 1;
+    else if (right && down) pov = 3;
+    else if (down && left) pov = 5;
+    else if (left && up) pov = 7;
+    else if (up) pov = 0;
+    else if (right) pov = 2;
+    else if (down) pov = 4;
+    else if (left) pov = 6;
+    result.hats[0] = pov;
+    return result;
+}
+#endif
+
 void Input::poll()
 {
     s_kbPoll = 3;
+#if defined(__vita__)
+    s_state = getVitaState();
+    return;
+#endif
     SDL_UpdateJoysticks();
 }
 
@@ -30,13 +111,6 @@ void Gamepad::updateKeys()
      * correctly) and re-emit each button edge as a synthetic SDL key event,
      * reusing the engine's proven keyboard path. Cross/Start = Enter (confirm),
      * Circle/Select = Escape (back), D-pad = arrows, everything else = Space. */
-    static bool s_ctrlInit = false;
-    if (!s_ctrlInit)
-    {
-        sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
-        s_ctrlInit = true;
-    }
-
     struct PadMap { unsigned int mask; SDL_Keycode key; SDL_Scancode sc; };
     static const PadMap s_map[] = {
         { SCE_CTRL_CROSS,    SDLK_RETURN, SDL_SCANCODE_RETURN },
@@ -54,14 +128,26 @@ void Gamepad::updateKeys()
     };
 
     static unsigned int s_prevButtons = 0;
-    SceCtrlData pad;
-    memset(&pad, 0, sizeof(pad));
-    if (sceCtrlPeekBufferPositive(0, &pad, 1) < 0)
-        return;
+    s_state = getVitaState();
 
     for (const PadMap& m : s_map)
     {
-        bool now  = (pad.buttons    & m.mask) != 0;
+        bool now  = false;
+        switch (m.mask)
+        {
+        case SCE_CTRL_TRIANGLE: now = (s_state.buttons & (1ull << 0)) != 0; break;
+        case SCE_CTRL_CIRCLE:   now = (s_state.buttons & (1ull << 1)) != 0; break;
+        case SCE_CTRL_CROSS:    now = (s_state.buttons & (1ull << 2)) != 0; break;
+        case SCE_CTRL_SQUARE:   now = (s_state.buttons & (1ull << 3)) != 0; break;
+        case SCE_CTRL_LTRIGGER: now = (s_state.buttons & (1ull << 4)) != 0; break;
+        case SCE_CTRL_RTRIGGER: now = (s_state.buttons & (1ull << 5)) != 0; break;
+        case SCE_CTRL_DOWN:     now = (s_state.buttons & (1ull << 6)) != 0; break;
+        case SCE_CTRL_LEFT:     now = (s_state.buttons & (1ull << 7)) != 0; break;
+        case SCE_CTRL_UP:       now = (s_state.buttons & (1ull << 8)) != 0; break;
+        case SCE_CTRL_RIGHT:    now = (s_state.buttons & (1ull << 9)) != 0; break;
+        case SCE_CTRL_SELECT:   now = (s_state.buttons & (1ull << 10)) != 0; break;
+        case SCE_CTRL_START:    now = (s_state.buttons & (1ull << 11)) != 0; break;
+        }
         bool prev = (s_prevButtons  & m.mask) != 0;
         if (now == prev)
             continue;
@@ -74,7 +160,19 @@ void Gamepad::updateKeys()
         kevent.key.down = now;
         SDL_PushEvent(&kevent);
     }
-    s_prevButtons = pad.buttons;
+    s_prevButtons = 0;
+    if (s_state.buttons & (1ull << 0)) s_prevButtons |= SCE_CTRL_TRIANGLE;
+    if (s_state.buttons & (1ull << 1)) s_prevButtons |= SCE_CTRL_CIRCLE;
+    if (s_state.buttons & (1ull << 2)) s_prevButtons |= SCE_CTRL_CROSS;
+    if (s_state.buttons & (1ull << 3)) s_prevButtons |= SCE_CTRL_SQUARE;
+    if (s_state.buttons & (1ull << 4)) s_prevButtons |= SCE_CTRL_LTRIGGER;
+    if (s_state.buttons & (1ull << 5)) s_prevButtons |= SCE_CTRL_RTRIGGER;
+    if (s_state.buttons & (1ull << 6)) s_prevButtons |= SCE_CTRL_DOWN;
+    if (s_state.buttons & (1ull << 7)) s_prevButtons |= SCE_CTRL_LEFT;
+    if (s_state.buttons & (1ull << 8)) s_prevButtons |= SCE_CTRL_UP;
+    if (s_state.buttons & (1ull << 9)) s_prevButtons |= SCE_CTRL_RIGHT;
+    if (s_state.buttons & (1ull << 10)) s_prevButtons |= SCE_CTRL_SELECT;
+    if (s_state.buttons & (1ull << 11)) s_prevButtons |= SCE_CTRL_START;
     return;
 #endif
     if (s_gp1)
@@ -175,9 +273,7 @@ Gamepad::~Gamepad()
 x86::reg32 Gamepad::getCount()
 {
 #if defined(__vita__)
-    /* Return 0 so the game uses keyboard-only input path.
-     * Vita controller input is synthesized as key events in window.cpp. */
-    return 0;
+    return 1;
 #endif
     int count = 0;
     SDL_JoystickID *ids = SDL_GetJoysticks(&count);
@@ -187,12 +283,18 @@ x86::reg32 Gamepad::getCount()
 
 x86::reg32 Gamepad::getButtonCount() const
 {
+#if defined(__vita__)
+    return 12;
+#endif
     if (!m_joystick) return 0;
     return SDL_GetNumJoystickButtons(m_joystick);
 }
 
 x86::reg32 Gamepad::getAxesCount() const
 {
+#if defined(__vita__)
+    return 4;
+#endif
     if (!m_joystick) return 0;
     return SDL_GetNumJoystickAxes(m_joystick);
 }
@@ -201,6 +303,9 @@ GamepadState Gamepad::getState() const
 {
     GamepadState result;
     memset(&result, 0, sizeof(result));
+#if defined(__vita__)
+    return getVitaState();
+#endif
     if (!m_joystick) return result;
     for (x86::reg32 button = 0; button < getButtonCount(); ++button)
     {

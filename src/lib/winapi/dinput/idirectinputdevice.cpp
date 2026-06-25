@@ -10,6 +10,12 @@ namespace win32 { namespace dinput
 x86::reg32 IDirectInputDevice::s_iDirectInputDeviceVtable = 0;
 const GUID IDirectInputDevice::s_diPropRange =  { 0x6F1D2B61, 0xD5A0, 0x11CF, { 0xBF,0xC7,0x44,0x45,0x53,0x54,0x00,0x00 } };
 
+DEFINE_GUID(GUID_XAxis,  0xA36D02E0,0xC9F3,0x11CF,0xBF,0xC7,0x44,0x45,0x53,0x54,0x00,0x00);
+DEFINE_GUID(GUID_YAxis,  0xA36D02E1,0xC9F3,0x11CF,0xBF,0xC7,0x44,0x45,0x53,0x54,0x00,0x00);
+DEFINE_GUID(GUID_RxAxis, 0xA36D02F4,0xC9F3,0x11CF,0xBF,0xC7,0x44,0x45,0x53,0x54,0x00,0x00);
+DEFINE_GUID(GUID_RyAxis, 0xA36D02F5,0xC9F3,0x11CF,0xBF,0xC7,0x44,0x45,0x53,0x54,0x00,0x00);
+DEFINE_GUID(GUID_POV,    0xA36D02F2,0xC9F3,0x11CF,0xBF,0xC7,0x44,0x45,0x53,0x54,0x00,0x00);
+
 enum DirectInutDeviceForceFeedBackCommand
 {
     DISFFC_RESET            = 0x00000001,
@@ -46,6 +52,23 @@ enum DirectInputDeviceHow
     DIPH_BYID       = 2,
     DIPH_BYUSAGE    = 3
 };
+
+enum DirectInputObjectType
+{
+    DIDFT_ABSAXIS       = 0x00000003,
+    DIDFT_POV           = 0x00000010,
+    DIDFT_PSHBUTTON     = 0x0000000C,
+    DIDFT_AXIS          = 0x00000003,
+    DIDFT_BUTTON        = 0x0000000C,
+    DIDFT_ALL           = 0x00000000,
+    DIDFT_TYPEMASK      = 0x000000FF,
+    DIDFT_INSTANCEMASK  = 0x00FFFF00
+};
+
+static DWORD makeObjectType(DWORD type, DWORD instance)
+{
+    return type | ((instance << 8) & DIDFT_INSTANCEMASK);
+}
 
 enum DirectInputDeviceForceFeedbackState
 {
@@ -97,6 +120,115 @@ struct IDirectInputDevice::DIPROPPOINTER
     Packed<UINT>    uData;
 };
 
+struct DirectInputObject
+{
+    const GUID* guid;
+    DWORD offset;
+    DWORD type;
+    const char* name;
+};
+
+struct DeviceObjectInfo
+{
+    DWORD   dwSize;
+    GUID    guidType;
+    DWORD   dwOfs;
+    DWORD   dwType;
+    DWORD   dwFlags;
+    CHAR    tszName[MAX_PATH];
+    DWORD   dwFFMaxForce;
+    DWORD   dwFFForceResolution;
+    WORD    wCollectionNumber;
+    WORD    wDesignatorIndex;
+    WORD    wUsagePage;
+    WORD    wUsage;
+    WORD    dwDimension;
+    WORD    wExponent;
+    WORD    wReportId;
+};
+
+static const DirectInputObject s_gamepadObjects[] = {
+    { &GUID_XAxis,  0,  makeObjectType(DIDFT_ABSAXIS, 0),  "X Axis" },
+    { &GUID_YAxis,  4,  makeObjectType(DIDFT_ABSAXIS, 1),  "Y Axis" },
+    { &GUID_RxAxis, 12, makeObjectType(DIDFT_ABSAXIS, 2),  "RX Axis" },
+    { &GUID_RyAxis, 16, makeObjectType(DIDFT_ABSAXIS, 3),  "RY Axis" },
+    { &GUID_POV,    32, makeObjectType(DIDFT_POV, 0),      "POV" },
+    { nullptr,      48, makeObjectType(DIDFT_PSHBUTTON, 0), "Triangle" },
+    { nullptr,      49, makeObjectType(DIDFT_PSHBUTTON, 1), "Circle" },
+    { nullptr,      50, makeObjectType(DIDFT_PSHBUTTON, 2), "Cross" },
+    { nullptr,      51, makeObjectType(DIDFT_PSHBUTTON, 3), "Square" },
+    { nullptr,      52, makeObjectType(DIDFT_PSHBUTTON, 4), "L" },
+    { nullptr,      53, makeObjectType(DIDFT_PSHBUTTON, 5), "R" },
+    { nullptr,      54, makeObjectType(DIDFT_PSHBUTTON, 6), "D-Pad Down" },
+    { nullptr,      55, makeObjectType(DIDFT_PSHBUTTON, 7), "D-Pad Left" },
+    { nullptr,      56, makeObjectType(DIDFT_PSHBUTTON, 8), "D-Pad Up" },
+    { nullptr,      57, makeObjectType(DIDFT_PSHBUTTON, 9), "D-Pad Right" },
+    { nullptr,      58, makeObjectType(DIDFT_PSHBUTTON, 10), "Select" },
+    { nullptr,      59, makeObjectType(DIDFT_PSHBUTTON, 11), "Start" },
+};
+
+static bool objectMatchesFlags(const DirectInputObject& object, DWORD flags)
+{
+    DWORD requestedType = flags & DIDFT_TYPEMASK;
+    if (requestedType == DIDFT_ALL)
+        return true;
+    return (object.type & requestedType) != 0;
+}
+
+static const DirectInputObject* findObject(DWORD value, DWORD how)
+{
+    for (const DirectInputObject& object : s_gamepadObjects)
+    {
+        switch (how)
+        {
+        case DIPH_BYOFFSET:
+            if (object.offset == value)
+                return &object;
+            break;
+        case DIPH_BYID:
+            if (object.type == value)
+                return &object;
+            break;
+        case DIPH_BYUSAGE:
+        case DIPH_DEVICE:
+            break;
+        }
+    }
+    return nullptr;
+}
+
+static void fillObjectInstance(void* objectInfoPtr, const DirectInputObject& object)
+{
+    DeviceObjectInfo* objectInfo = reinterpret_cast<DeviceObjectInfo*>(objectInfoPtr);
+    DWORD size = objectInfo->dwSize;
+    memset(objectInfo, 0, size);
+    objectInfo->dwSize = size;
+    if (object.guid)
+        objectInfo->guidType = *object.guid;
+    objectInfo->dwOfs = object.offset;
+    objectInfo->dwType = object.type;
+    objectInfo->dwFlags = 0;
+    strcpy(objectInfo->tszName, object.name);
+}
+
+static void writeLong(LPVOID data, DWORD size, DWORD offset, LONG value)
+{
+    if (offset + sizeof(LONG) <= size)
+        *reinterpret_cast<LONG*>(reinterpret_cast<x86::reg8*>(data) + offset) = value;
+}
+
+static void writeDword(LPVOID data, DWORD size, DWORD offset, DWORD value)
+{
+    if (offset + sizeof(DWORD) <= size)
+        *reinterpret_cast<DWORD*>(reinterpret_cast<x86::reg8*>(data) + offset) = value;
+}
+
+static void writeByte(LPVOID data, DWORD size, DWORD offset, BYTE value)
+{
+    if (offset < size)
+        *(reinterpret_cast<BYTE*>(data) + offset) = value;
+}
+
 //DEFINE_GUID(IID_IDirectInputDeviceA,	0x5944E680,0xC92E,0x11CF,0xBF,0xC7,0x44,0x45,0x53,0x54,0x00,0x00);
 DEFINE_GUID(IID_IDirectInputDevice2A,	0x5944E682,0xC92E,0x11CF,0xBF,0xC7,0x44,0x45,0x53,0x54,0x00,0x00);
 
@@ -119,6 +251,7 @@ HRESULT IDirectInputDevice::GetCapabilities(WinApplication* app, x86::CPU& cpu,
     lpDIDevCaps->dwDevType = 4;
     lpDIDevCaps->dwButtons = dynamic_cast<Input*>(m_resource)->getButtonCount();
     lpDIDevCaps->dwAxes = dynamic_cast<Input*>(m_resource)->getAxesCount();
+    lpDIDevCaps->dwPOVs = dynamic_cast<Gamepad*>(m_resource) ? 1 : 0;
     return 0;
 }
 
@@ -127,11 +260,26 @@ HRESULT IDirectInputDevice::EnumObjects(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(lpCallback);
-    NFS2_USE(pvRef);
-    NFS2_USE(dwFlags);
-    NFS2_ASSERT(false);
-    return 1;
+    if (!dynamic_cast<Gamepad*>(m_resource))
+        return 0;
+
+    MemMap mem(sizeof(DIDEVICEOBJECTINSTANCE));
+    LPDIDEVICEOBJECTINSTANCE objectInfo = &app->getMemory<DIDEVICEOBJECTINSTANCE>(mem.getBlockStart());
+    for (const DirectInputObject& object : s_gamepadObjects)
+    {
+        if (!objectMatchesFlags(object, dwFlags))
+            continue;
+
+        objectInfo->dwSize = sizeof(DIDEVICEOBJECTINSTANCE);
+        fillObjectInstance(objectInfo, object);
+        cpu.esp -= 8;
+        app->getMemory<x86::reg32>(cpu.esp + 0) = mem.getBlockStart();
+        app->getMemory<x86::reg32>(cpu.esp + 4) = pvRef;
+        app->dynamic_call(lpCallback, cpu);
+        if (!cpu.eax)
+            break;
+    }
+    return 0;
 }
 
 HRESULT IDirectInputDevice::GetProperty(WinApplication* app, x86::CPU& cpu,
@@ -139,10 +287,14 @@ HRESULT IDirectInputDevice::GetProperty(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(rguidProp);
-    NFS2_USE(pdiph);
-    //NFS2_ASSERT(false);
-    return 1;
+    GUID prop = rguidProp ? GUID(app->getMemory<GUID>(rguidProp)) : GUID {};
+    if (rguidProp && prop == s_diPropRange && pdiph && pdiph->dwSize >= sizeof(DIPROPRANGE))
+    {
+        DIPROPRANGE* range = reinterpret_cast<DIPROPRANGE*>(pdiph);
+        range->lMin = 0;
+        range->lMax = 65535;
+    }
+    return 0;
 }
 
 HRESULT IDirectInputDevice::SetProperty(WinApplication* app, x86::CPU& cpu,
@@ -174,30 +326,19 @@ HRESULT IDirectInputDevice::GetDeviceState(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(cbData);
-    NFS2_USE(lpvData);
     app->unlockContext(cpu);
     Gamepad* gamepad = dynamic_cast<Gamepad*>(m_resource);
     memset(lpvData, 0, cbData);
     if (gamepad)
     {
-        NFS2_ASSERT(cbData == sizeof(DIJOYSTATE));
-        DIJOYSTATE* state = reinterpret_cast<DIJOYSTATE*>(lpvData);
         GamepadState gpState = gamepad->getState();
-        state->lX = 0x7fff + gpState.axes[0];
-        state->lY = 0x7fff + gpState.axes[1];
-        state->lZ = 0x7fff + gpState.axes[4];
-        state->lRx = 0x7fff + gpState.axes[2];
-        state->lRy = 0x7fff + gpState.axes[3];
-        state->lRz = 0x7fff + gpState.axes[5];
-        state->rgdwPOV[0] = -1;
-        state->rgdwPOV[1] = -1;
-        state->rgdwPOV[2] = -1;
-        state->rgdwPOV[3] = -1;
-        for (int button = 0; button < 16; ++button)
-        {
-            state->rgbButtons[button] = (gpState.buttons & (1ll<<button)) ? 0x80 : 0x00;
-        }
+        writeLong(lpvData, cbData, 0, 0x7fff + gpState.axes[0]);
+        writeLong(lpvData, cbData, 4, 0x7fff + gpState.axes[1]);
+        writeLong(lpvData, cbData, 12, 0x7fff + gpState.axes[2]);
+        writeLong(lpvData, cbData, 16, 0x7fff + gpState.axes[3]);
+        writeDword(lpvData, cbData, 32, gpState.hats[0] == 0xff ? 0xffffffffu : DWORD(gpState.hats[0]) * 4500);
+        for (int button = 0; button < 12; ++button)
+            writeByte(lpvData, cbData, 48 + button, (gpState.buttons & (1ull << button)) ? 0x80 : 0x00);
     }
     app->lockContext(cpu);
     return 0;
@@ -252,21 +393,9 @@ HRESULT IDirectInputDevice::GetObjectInfo(WinApplication* app, x86::CPU& cpu,
     NFS2_USE(cpu);
     NFS2_USE(dwObj);
     NFS2_USE(dwHow);
-    NFS2_ASSERT(pdidoi->dwSize == sizeof(DIDEVICEOBJECTINSTANCE));
-    memset(pdidoi, 0, pdidoi->dwSize);
-    pdidoi->dwSize = sizeof(DIDEVICEOBJECTINSTANCE);
-    /*switch (dwHow)
-    {
-    case DIPH_BYOFFSET:
-        NFS2_ASSERT(false);
-        break;
-    case DIPH_DEVICE:
-    case DIPH_BYID:
-    case DIPH_BYUSAGE:
-        NFS2_ASSERT(false);
-        break;
-    }
-    NFS2_ASSERT(false);*/
+    const DirectInputObject* object = findObject(dwObj, dwHow);
+    if (object)
+        fillObjectInstance(pdidoi, *object);
     return 0;
 }
 
@@ -275,9 +404,13 @@ HRESULT IDirectInputDevice::GetDeviceInfo(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(pdidi);
-    NFS2_ASSERT(false);
-    return 1;
+    DWORD size = pdidi->dwSize;
+    memset(pdidi, 0, size);
+    pdidi->dwSize = size;
+    pdidi->dwDevType = 4;
+    strcpy(pdidi->tszInstanceName, "PS Vita Controller");
+    strcpy(pdidi->tszProductName, "PS Vita Controller");
+    return 0;
 }
 
 HRESULT IDirectInputDevice::RunControlPanel(WinApplication* app, x86::CPU& cpu,
