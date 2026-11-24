@@ -150,6 +150,14 @@ Window::Window(const char *title, int /*x*/, int /*y*/, int w, int h)
         return;
     }
     SDL_Log("[window] window created OK");
+#if !defined(__vita__)
+    /* SDL2 delivered text input by default; SDL3 requires starting it, and
+     * drops all text events otherwise, so the game never gets WM_CHAR for
+     * printable characters (name entry, cheat codes). Not on Vita: there SDL
+     * would answer by opening the system IME dialog, which cannot render over
+     * vitaGL (it needs sceCommonDialog updates) and is the suspected crash. */
+    SDL_StartTextInput(m_window);
+#endif
 }
 
 Window::~Window()
@@ -542,8 +550,27 @@ x86::reg32 Window::getMessage(const x86::CPU& cpu, MSG* result, Window *window, 
                     break;
                 case SDL_EVENT_TEXT_INPUT:
                     {
+                        /* event.text.text may be NULL, and an IME can commit
+                         * multi-byte UTF-8 or several characters at once. The
+                         * game's character queue is single-byte ASCII, so
+                         * forward printable ASCII only: the first character
+                         * now, any others as queued WM_CHAR events. */
+                        const unsigned char* t = reinterpret_cast<const unsigned char*>(event.text.text);
+                        if (!t || t[0] < 32 || t[0] >= 127)
+                            break;
+                        for (const unsigned char* p = t + 1; *p; ++p)
+                        {
+                            if (*p < 32 || *p >= 127)
+                                continue;
+                            SDL_Event queued;
+                            memset(&queued, 0, sizeof(queued));
+                            queued.type = g_wmCharEvent;
+                            queued.user.data1 = reinterpret_cast<void*>(static_cast<intptr_t>(*p));
+                            queued.user.data2 = reinterpret_cast<void*>(static_cast<intptr_t>(s_lastLParam));
+                            SDL_PushEvent(&queued);
+                        }
                         result->message = WM_CHAR;
-                        result->wParam = event.text.text[0];
+                        result->wParam = t[0];
                         result->lParam = s_lastLParam;
                     }
                     return 1;
