@@ -2,6 +2,7 @@
 #include <winapi/dinput/idirectinputdevice.h>
 #include <winapi/wrapper.h>
 #include <lib/gamepad.h>
+#include <lib/window.h>
 #include <SDL3/SDL.h>
 
 
@@ -67,6 +68,12 @@ HRESULT IDirectInput2::EnumDevices(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(dwFlags);
 
+#if defined(__vita__)
+    /* Single input source for NFS2 SE: the pad is keyboard-only (see
+     * winmm::joyGetNumDevs). */
+    if (!win32::g_isNFS3)
+        return 0;
+#endif
     static const GUID s_joystickGUID = { 0x4251809a, 0x67be, 0, "NFS PAD" };
     static const GUID s_driverGUID = { 0x4251809a, 0x67bf, 0xffff, "NFS PAD" };
     if (dwDevType == 0 || dwDevType == 4)

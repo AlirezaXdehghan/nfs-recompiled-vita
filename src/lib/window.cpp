@@ -16,6 +16,7 @@ Uint32 g_userEvent   = 0;
 Uint32 g_userEvent1  = 0;
 Uint32 g_userEvent2  = 0;
 Uint32 g_wmCharEvent = 0;
+bool   g_isNFS3      = false;
 
 static struct CustomEventRegistrar
 {

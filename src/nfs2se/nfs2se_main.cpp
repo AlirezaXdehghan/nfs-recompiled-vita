@@ -1,6 +1,7 @@
 #include <SDL3/SDL_main.h>
 #include <lib/file.h>
 #include <lib/registry.h>
+#include <lib/window.h>
 #include <nfs2se.h>
 #include <string>
 
@@ -44,6 +45,7 @@ int main(int argc, char* argv[])
     }
 #endif
     SDL_Init(SDL_INIT_EVENTS|SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_JOYSTICK);
+    win32::g_isNFS3 = false;
     SDL_Log("[nfs2se] SDL_Init done, constructing Application");
     {
         nfs2se::Application app(

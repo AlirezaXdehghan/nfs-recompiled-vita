@@ -12,6 +12,9 @@ extern Uint32 g_userEvent;
 extern Uint32 g_userEvent1;
 extern Uint32 g_userEvent2;
 extern Uint32 g_wmCharEvent;
+/* Set by the game entry point; lets shared code (input mapping) tell NFS2 SE
+ * from NFS3 HP. */
+extern bool g_isNFS3;
 
 class WindowClass : public GenericResource
 {

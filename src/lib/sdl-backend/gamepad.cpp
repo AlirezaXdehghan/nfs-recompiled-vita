@@ -1,5 +1,6 @@
 #include <lib/gamepad.h>
 #include <winapi/user32.h>
+#include <lib/window.h>
 #include <SDL3/SDL.h>
 #include <cstring>
 #if defined(__vita__)
@@ -108,71 +109,105 @@ void Gamepad::updateKeys()
     /* SDL_UpdateJoysticks() triggers sceHid* calls that are unimplemented in
      * Vita3K and crash the host, so the SDL joystick path is unusable here.
      * Instead poll the pad directly through sceCtrl (which Vita3K emulates
-     * correctly) and re-emit each button edge as a synthetic SDL key event,
-     * reusing the engine's proven keyboard path. Cross/Start = Enter (confirm),
-     * Circle/Select = Escape (back), D-pad = arrows, everything else = Space. */
-    struct PadMap { unsigned int mask; SDL_Keycode key; SDL_Scancode sc; };
-    static const PadMap s_map[] = {
-        { SCE_CTRL_CROSS,    SDLK_RETURN, SDL_SCANCODE_RETURN },
-        { SCE_CTRL_START,    SDLK_RETURN, SDL_SCANCODE_RETURN },
-        { SCE_CTRL_CIRCLE,   SDLK_ESCAPE, SDL_SCANCODE_ESCAPE },
-        { SCE_CTRL_SELECT,   SDLK_ESCAPE, SDL_SCANCODE_ESCAPE },
-        { SCE_CTRL_UP,       SDLK_UP,     SDL_SCANCODE_UP     },
-        { SCE_CTRL_DOWN,     SDLK_DOWN,   SDL_SCANCODE_DOWN   },
-        { SCE_CTRL_LEFT,     SDLK_LEFT,   SDL_SCANCODE_LEFT   },
-        { SCE_CTRL_RIGHT,    SDLK_RIGHT,  SDL_SCANCODE_RIGHT  },
-        { SCE_CTRL_TRIANGLE, SDLK_SPACE,  SDL_SCANCODE_SPACE  },
-        { SCE_CTRL_SQUARE,   SDLK_SPACE,  SDL_SCANCODE_SPACE  },
-        { SCE_CTRL_LTRIGGER, SDLK_SPACE,  SDL_SCANCODE_SPACE  },
-        { SCE_CTRL_RTRIGGER, SDLK_SPACE,  SDL_SCANCODE_SPACE  },
+     * correctly) and re-emit each edge as a synthetic SDL key event, reusing
+     * the engine's proven keyboard path.
+     *
+     * Every physical input (12 buttons + 4 left-stick and 4 right-stick
+     * directions) is a "source" that maps to one key per game:
+     *  - NFS3 keeps the original coarse map (steering/throttle come from the
+     *    DirectInput pad, keys are only for menus).
+     *  - NFS2 SE has the pad hidden from DirectInput, so everything must be a
+     *    key, with one distinct key per action (default NFS2 bindings:
+     *    Up/Down accelerate/brake, Left/Right steer, A/Z shift, C camera,
+     *    hold B look behind, H horn, Space handbrake, Esc pause). */
+    enum Source
+    {
+        SRC_TRIANGLE, SRC_CIRCLE, SRC_CROSS, SRC_SQUARE, SRC_L, SRC_R,
+        SRC_DOWN, SRC_LEFT, SRC_UP, SRC_RIGHT, SRC_SELECT, SRC_START,
+        SRC_LS_LEFT, SRC_LS_RIGHT, SRC_LS_UP, SRC_LS_DOWN,
+        SRC_RS_LEFT, SRC_RS_RIGHT, SRC_RS_UP, SRC_RS_DOWN,
+        SRC_COUNT
     };
+    struct KeyDef { SDL_Keycode key; SDL_Scancode sc; };
+#define K(k) { SDLK_##k, SDL_SCANCODE_##k }
+#define KNONE { 0, SDL_SCANCODE_UNKNOWN }
+    static const KeyDef s_mapNFS3[SRC_COUNT] = {
+        /* TRIANGLE */ K(SPACE),  /* CIRCLE */ K(ESCAPE), /* CROSS */ K(RETURN),
+        /* SQUARE   */ K(SPACE),  /* L      */ K(SPACE),  /* R     */ K(SPACE),
+        /* DOWN     */ K(DOWN),   /* LEFT   */ K(LEFT),   /* UP    */ K(UP),
+        /* RIGHT    */ K(RIGHT),  /* SELECT */ K(ESCAPE), /* START */ K(RETURN),
+        KNONE, KNONE, KNONE, KNONE,
+        KNONE, KNONE, KNONE, KNONE,
+    };
+    static const KeyDef s_mapNFS2[SRC_COUNT] = {
+        /* TRIANGLE: change camera  */ { SDLK_C, SDL_SCANCODE_C },
+        /* CIRCLE:   back / cancel  */ K(ESCAPE),
+        /* CROSS:    confirm        */ K(RETURN),
+        /* SQUARE:   handbrake      */ K(SPACE),
+        /* L:        brake          */ K(DOWN),
+        /* R:        accelerate     */ K(UP),
+        /* D-pad                    */ K(DOWN), K(LEFT), K(UP), K(RIGHT),
+        /* SELECT:   horn           */ { SDLK_H, SDL_SCANCODE_H },
+        /* START:    pause          */ K(ESCAPE),
+        /* left stick: steer + throttle/brake (digital) */
+        K(LEFT), K(RIGHT), K(UP), K(DOWN),
+        /* right stick: left/right = downshift/upshift, down = look behind,
+         * up = horn */
+        { SDLK_Z, SDL_SCANCODE_Z }, { SDLK_A, SDL_SCANCODE_A },
+        { SDLK_H, SDL_SCANCODE_H }, { SDLK_B, SDL_SCANCODE_B },
+    };
+#undef K
+#undef KNONE
+    const KeyDef* map = win32::g_isNFS3 ? s_mapNFS3 : s_mapNFS2;
 
-    static unsigned int s_prevButtons = 0;
+    static uint32_t s_prevSources = 0;
     s_state = getVitaState();
 
-    for (const PadMap& m : s_map)
+    /* Digital sticks with hysteresis so a stick resting near the threshold
+     * doesn't chatter. Vita Y axis: up is negative. */
+    auto stick = [&](x86::sreg16 v, uint32_t bitNeg, uint32_t bitPos) -> uint32_t
     {
-        bool now  = false;
-        switch (m.mask)
-        {
-        case SCE_CTRL_TRIANGLE: now = (s_state.buttons & (1ull << 0)) != 0; break;
-        case SCE_CTRL_CIRCLE:   now = (s_state.buttons & (1ull << 1)) != 0; break;
-        case SCE_CTRL_CROSS:    now = (s_state.buttons & (1ull << 2)) != 0; break;
-        case SCE_CTRL_SQUARE:   now = (s_state.buttons & (1ull << 3)) != 0; break;
-        case SCE_CTRL_LTRIGGER: now = (s_state.buttons & (1ull << 4)) != 0; break;
-        case SCE_CTRL_RTRIGGER: now = (s_state.buttons & (1ull << 5)) != 0; break;
-        case SCE_CTRL_DOWN:     now = (s_state.buttons & (1ull << 6)) != 0; break;
-        case SCE_CTRL_LEFT:     now = (s_state.buttons & (1ull << 7)) != 0; break;
-        case SCE_CTRL_UP:       now = (s_state.buttons & (1ull << 8)) != 0; break;
-        case SCE_CTRL_RIGHT:    now = (s_state.buttons & (1ull << 9)) != 0; break;
-        case SCE_CTRL_SELECT:   now = (s_state.buttons & (1ull << 10)) != 0; break;
-        case SCE_CTRL_START:    now = (s_state.buttons & (1ull << 11)) != 0; break;
-        }
-        bool prev = (s_prevButtons  & m.mask) != 0;
-        if (now == prev)
+        uint32_t out = 0;
+        const int onT = 18000, offT = 10000;
+        out |= (v < (s_prevSources & bitNeg ? -offT : -onT)) ? bitNeg : 0;
+        out |= (v > (s_prevSources & bitPos ?  offT :  onT)) ? bitPos : 0;
+        return out;
+    };
+    uint32_t now = uint32_t(s_state.buttons & 0xfffull);
+    now |= stick(s_state.axes[0], 1u << SRC_LS_LEFT, 1u << SRC_LS_RIGHT);
+    now |= stick(s_state.axes[1], 1u << SRC_LS_UP,   1u << SRC_LS_DOWN);
+    now |= stick(s_state.axes[2], 1u << SRC_RS_LEFT, 1u << SRC_RS_RIGHT);
+    now |= stick(s_state.axes[3], 1u << SRC_RS_UP,   1u << SRC_RS_DOWN);
+
+    /* A key is held if ANY source mapped to it is held (e.g. D-pad up and
+     * left-stick up both -> Up), so releasing one source doesn't release a key
+     * another still holds. */
+    auto keyHeld = [&](SDL_Keycode key, uint32_t sources) -> bool
+    {
+        for (int j = 0; j < SRC_COUNT; ++j)
+            if ((sources & (1u << j)) && map[j].key == key)
+                return true;
+        return false;
+    };
+    for (int i = 0; i < SRC_COUNT; ++i)
+    {
+        const uint32_t bit = 1u << i;
+        if ((now & bit) == (s_prevSources & bit) || !map[i].key)
             continue;
-        user32::SetVirtualKeyState(m.key, now);
+        const bool down = keyHeld(map[i].key, now);
+        const bool wasDown = keyHeld(map[i].key, s_prevSources);
+        if (down == wasDown)
+            continue;
+        user32::SetVirtualKeyState(map[i].key, down);
         SDL_Event kevent;
         memset(&kevent, 0, sizeof(kevent));
-        kevent.type = now ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
-        kevent.key.key = m.key;
-        kevent.key.scancode = m.sc;
-        kevent.key.down = now;
+        kevent.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+        kevent.key.key = map[i].key;
+        kevent.key.scancode = map[i].sc;
+        kevent.key.down = down;
         SDL_PushEvent(&kevent);
     }
-    s_prevButtons = 0;
-    if (s_state.buttons & (1ull << 0)) s_prevButtons |= SCE_CTRL_TRIANGLE;
-    if (s_state.buttons & (1ull << 1)) s_prevButtons |= SCE_CTRL_CIRCLE;
-    if (s_state.buttons & (1ull << 2)) s_prevButtons |= SCE_CTRL_CROSS;
-    if (s_state.buttons & (1ull << 3)) s_prevButtons |= SCE_CTRL_SQUARE;
-    if (s_state.buttons & (1ull << 4)) s_prevButtons |= SCE_CTRL_LTRIGGER;
-    if (s_state.buttons & (1ull << 5)) s_prevButtons |= SCE_CTRL_RTRIGGER;
-    if (s_state.buttons & (1ull << 6)) s_prevButtons |= SCE_CTRL_DOWN;
-    if (s_state.buttons & (1ull << 7)) s_prevButtons |= SCE_CTRL_LEFT;
-    if (s_state.buttons & (1ull << 8)) s_prevButtons |= SCE_CTRL_UP;
-    if (s_state.buttons & (1ull << 9)) s_prevButtons |= SCE_CTRL_RIGHT;
-    if (s_state.buttons & (1ull << 10)) s_prevButtons |= SCE_CTRL_SELECT;
-    if (s_state.buttons & (1ull << 11)) s_prevButtons |= SCE_CTRL_START;
+    s_prevSources = now;
     return;
 #endif
     if (s_gp1)

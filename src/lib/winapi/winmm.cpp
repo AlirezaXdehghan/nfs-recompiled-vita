@@ -1,6 +1,7 @@
 #include <winapi/winmm.h>
 #include <lib/timer.h>
 #include <lib/gamepad.h>
+#include <lib/window.h>
 #include <x86.h>
 #include <SDL3/SDL.h>
 #include <cstring>
@@ -12,6 +13,14 @@ UINT joyGetNumDevs(WinApplication* app, x86::CPU& cpu)
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
+#if defined(__vita__)
+    /* NFS2 SE gets the pad exclusively as synthesised keyboard input (see
+     * Gamepad::updateKeys). Also exposing it as a DirectInput/winmm joystick
+     * made the game see every press twice (key + joystick) and drive/steer
+     * with both at once. NFS3 keeps the joystick path. */
+    if (!win32::g_isNFS3)
+        return 0;
+#endif
     SDL_Log("[winmm] joyGetNumDevs -> %u", unsigned(Gamepad::getCount()));
     return Gamepad::getCount();
 }
