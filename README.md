@@ -83,6 +83,7 @@ the game no longer sees every press twice). NFS3 is unchanged.
 | Select | Horn (H) |
 | Right stick left / right | Downshift (Z) / upshift (A) |
 | Right stick down | Look behind (hold B) |
+| L + R + Select | Open the system keyboard (name entry, text fields) |
 
 Glide `grClipWindow` is now honoured as a GL scissor, and alpha test / chromakey
 state is applied per draw call instead of once per frame.

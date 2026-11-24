@@ -51,6 +51,9 @@ public:
 
     GamepadState getState() const;
     static void updateKeys();
+    /* Vita: true while the system keyboard dialog is open (the renderer must
+     * then present with common-dialog support). Always false elsewhere. */
+    static bool imeActive();
 private:
     SDL_Joystick* m_joystick;
 };

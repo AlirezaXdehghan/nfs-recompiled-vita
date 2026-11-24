@@ -212,7 +212,7 @@ void Renderer::present()
     glEnd();
     glFlush();
 #if defined(__vita__)
-    vglSwapBuffers(GL_FALSE);
+    vglSwapBuffers(Gamepad::imeActive() ? GL_TRUE : GL_FALSE);
 #else
     SDL_GL_SwapWindow(m_window->m_window);
 #endif
@@ -246,7 +246,7 @@ void Renderer::finishFrame()
 {
     Gamepad::updateKeys();
     glFlush();
-    vglSwapBuffers(GL_FALSE);
+    vglSwapBuffers(Gamepad::imeActive() ? GL_TRUE : GL_FALSE);
 }
 #endif
 

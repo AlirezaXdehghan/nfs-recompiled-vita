@@ -5,6 +5,8 @@
 #include <cstring>
 #if defined(__vita__)
 # include <psp2/ctrl.h>
+# include <psp2/ime_dialog.h>
+# include <psp2/common_dialog.h>
 #endif
 
 
@@ -93,6 +95,90 @@ static GamepadState getVitaState()
 }
 #endif
 
+#if defined(__vita__)
+/* ---- System keyboard (text entry) ---------------------------------------
+ * The Vita has no keyboard, and SDL3's text input would need its own IME
+ * dialog to render over vitaGL. Instead the pad opens the system keyboard
+ * itself (hold L + R + Select) and the result is delivered to the game as
+ * WM_CHAR. The dialog is drawn by vitaGL when the frame is swapped with
+ * vglSwapBuffers(GL_TRUE) (see Renderer), which is why imeActive() exists. */
+static bool s_imeActive = false;
+static bool s_imeWaitRelease = false;
+static SceWChar16 s_imeTitle[] = { 'E','n','t','e','r',' ','t','e','x','t',0 };
+static SceWChar16 s_imeInitial[] = { 0 };
+static SceWChar16 s_imeBuffer[33];
+static const unsigned s_imeMaxLength = 32;
+
+static void vitaImeBegin()
+{
+    if (s_imeActive)
+        return;
+    memset(s_imeBuffer, 0, sizeof(s_imeBuffer));
+    SceImeDialogParam param;
+    sceImeDialogParamInit(&param);
+    param.supportedLanguages = 0x0001FFFF;
+    param.languagesForced = SCE_FALSE;
+    param.type = SCE_IME_TYPE_DEFAULT;
+    param.option = 0;
+    param.textBoxMode = SCE_IME_DIALOG_TEXTBOX_MODE_WITH_CLEAR;
+    param.maxTextLength = s_imeMaxLength;
+    param.title = s_imeTitle;
+    param.initialText = s_imeInitial;
+    param.inputTextBuffer = s_imeBuffer;
+    if (sceImeDialogInit(&param) >= 0)
+    {
+        s_imeActive = true;
+        s_imeWaitRelease = true;
+        SDL_Log("[ime] keyboard opened");
+    }
+    else
+    {
+        SDL_Log("[ime] sceImeDialogInit failed");
+    }
+}
+
+static void vitaImePostChar(unsigned ch)
+{
+    SDL_Event e;
+    memset(&e, 0, sizeof(e));
+    e.type = g_wmCharEvent;
+    e.user.data1 = reinterpret_cast<void*>(static_cast<intptr_t>(ch));
+    e.user.data2 = reinterpret_cast<void*>(static_cast<intptr_t>(1));
+    SDL_PushEvent(&e);
+}
+
+static void vitaImePoll()
+{
+    if (sceImeDialogGetStatus() != SCE_COMMON_DIALOG_STATUS_FINISHED)
+        return;
+    SceImeDialogResult result;
+    memset(&result, 0, sizeof(result));
+    sceImeDialogGetResult(&result);
+    if (result.button == SCE_IME_DIALOG_BUTTON_ENTER)
+    {
+        /* Clear whatever default text the game's field holds, then type the
+         * new text. Only printable ASCII: the game's queue is single-byte. */
+        for (unsigned i = 0; i < s_imeMaxLength; ++i)
+            vitaImePostChar(8);
+        for (unsigned i = 0; i < s_imeMaxLength && s_imeBuffer[i]; ++i)
+            if (s_imeBuffer[i] >= 32 && s_imeBuffer[i] < 127)
+                vitaImePostChar(s_imeBuffer[i]);
+    }
+    sceImeDialogTerm();
+    s_imeActive = false;
+    SDL_Log("[ime] keyboard closed (button=%d)", int(result.button));
+}
+#endif
+
+bool Gamepad::imeActive()
+{
+#if defined(__vita__)
+    return s_imeActive;
+#else
+    return false;
+#endif
+}
+
 void Input::poll()
 {
     s_kbPoll = 3;
@@ -161,7 +247,23 @@ void Gamepad::updateKeys()
     const KeyDef* map = win32::g_isNFS3 ? s_mapNFS3 : s_mapNFS2;
 
     static uint32_t s_prevSources = 0;
+
+    /* While the system keyboard is open it owns the pad, and the game gets no
+     * key events. After it closes, wait until every button is released so the
+     * L+R+Select chord that opened it can't immediately reopen it. */
+    if (s_imeActive)
+    {
+        vitaImePoll();
+        return;
+    }
     s_state = getVitaState();
+    if (s_imeWaitRelease)
+    {
+        if (s_state.buttons == 0)
+            s_imeWaitRelease = false;
+        else
+            return;
+    }
 
     /* Digital sticks with hysteresis so a stick resting near the threshold
      * doesn't chatter. Vita Y axis: up is negative. */
@@ -178,6 +280,14 @@ void Gamepad::updateKeys()
     now |= stick(s_state.axes[1], 1u << SRC_LS_UP,   1u << SRC_LS_DOWN);
     now |= stick(s_state.axes[2], 1u << SRC_RS_LEFT, 1u << SRC_RS_RIGHT);
     now |= stick(s_state.axes[3], 1u << SRC_RS_UP,   1u << SRC_RS_DOWN);
+
+    /* L + R + Select opens the system keyboard. Every held key is released
+     * first (now = 0 runs the normal release path below) so nothing sticks
+     * down while the dialog owns the pad. */
+    const uint32_t imeChord = (1u << SRC_L) | (1u << SRC_R) | (1u << SRC_SELECT);
+    const bool openIme = (now & imeChord) == imeChord && (s_prevSources & imeChord) != imeChord;
+    if (openIme)
+        now = 0;
 
     /* A key is held if ANY source mapped to it is held (e.g. D-pad up and
      * left-stick up both -> Up), so releasing one source doesn't release a key
@@ -208,6 +318,8 @@ void Gamepad::updateKeys()
         SDL_PushEvent(&kevent);
     }
     s_prevSources = now;
+    if (openIme)
+        vitaImeBegin();
     return;
 #endif
     if (s_gp1)
