@@ -597,11 +597,8 @@ static void grClipWindow(WinApplication* app, x86::CPU& cpu,
 {
     NFS2_USE(app);
     NFS2_USE(cpu);
-    NFS2_USE(minX);
-    NFS2_USE(minY);
-    NFS2_USE(maxX);
-    NFS2_USE(maxY);
-    //NFS2_ASSERT(false);
+    if (s_glideRenderer)
+        s_glideRenderer->setClipWindow(minX, minY, maxX, maxY);
 }
 
 static void grColorCombine(WinApplication* app, x86::CPU& cpu,

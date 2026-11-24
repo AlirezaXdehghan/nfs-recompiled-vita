@@ -67,6 +67,26 @@ button indices:
 
 Right-stick aiming and analog throttle are reported but not yet mapped.
 
+### Controls on Vita (NFS II SE)
+
+NFS2 gets the pad as keyboard input only (the DirectInput joystick is hidden so
+the game no longer sees every press twice). NFS3 is unchanged.
+
+| Vita | Action |
+| --- | --- |
+| D-pad / left stick | Steer, accelerate (up), brake (down), menu navigation |
+| R / L | Accelerate / brake |
+| Cross | Confirm (Enter) |
+| Circle / Start | Back / pause (Esc) |
+| Square | Handbrake (Space) |
+| Triangle | Change camera (C) |
+| Select | Horn (H) |
+| Right stick left / right | Downshift (Z) / upshift (A) |
+| Right stick down | Look behind (hold B) |
+
+Glide `grClipWindow` is now honoured as a GL scissor, and alpha test / chromakey
+state is applied per draw call instead of once per frame.
+
 ---
 
 ## Credits

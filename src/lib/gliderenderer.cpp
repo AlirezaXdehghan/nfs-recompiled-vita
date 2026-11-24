@@ -43,6 +43,10 @@ static const bool s_vitaDebugImmediateTexture = true;
  * is ~0 is drawn with pure vertex color (texturing off), matching the shader's
  * mix(v_color, v_color*tex, colorCombine). Set false to restore old behaviour. */
 static const bool s_vitaRespectColorCombine = true;
+/* Apply grClipWindow as a GL scissor in the immediate-mode path. Previously the
+ * call was ignored, so anything the game clips (HUD/mirror/minimap viewports)
+ * could draw outside its window. Set false to restore the old behaviour. */
+static const bool s_vitaHonourClipWindow = true;
 static const char g_glFragmentShaderDebug[] = ""
 "#version 400\n"
 "in vec3 v_texCoord;"
@@ -183,6 +187,10 @@ GlideRenderer::GlideRenderer(Renderer* renderer)
     ,   m_alphaTestReference(0)
     ,   m_chromakeyEnabled(false)
     ,   m_alphaTestEnabled(false)
+    ,   m_clipMinX(0)
+    ,   m_clipMinY(0)
+    ,   m_clipMaxX(0xffff)
+    ,   m_clipMaxY(0xffff)
 {
     m_tmus[0] = new GlideTMU(s_atlasSize);
     //m_tmus[1] = new GlideTMU(s_atlasSize);
@@ -456,6 +464,12 @@ void GlideRenderer::flush()
     dcall.zTest = m_zTest;
     dcall.zBuffer = m_zBuffer;
     dcall.alphaBlend = m_alphaBlend;
+    dcall.alphaTest = m_alphaTestEnabled || m_chromakeyEnabled;
+    dcall.alphaRef = m_alphaTestReference;
+    dcall.clipMinX = m_clipMinX;
+    dcall.clipMinY = m_clipMinY;
+    dcall.clipMaxX = m_clipMaxX;
+    dcall.clipMaxY = m_clipMaxY;
     dcall.lastTriangle = m_vertexCount;
     m_drawCalls.push_back(dcall);
 }
@@ -515,15 +529,40 @@ void GlideRenderer::swap()
                         && (!s_vitaRespectColorCombine
                             || m_vertices[first].colorCombine >= 0.5f
                             || m_vertices[first].alphaCombine >= 0.5f);
+                    /* Glide clip window -> GL scissor (see grClipWindow). Glide's
+                     * origin is top-left, GL's is bottom-left, and the game
+                     * image is letterboxed into the (vpX,vpY,vpW,vpH) viewport. A
+                     * degenerate or full-screen window disables the scissor so a
+                     * bad value can never blank the screen. */
+                    {
+                        const int gw = int(m_renderer->m_width), gh = int(m_renderer->m_height);
+                        const int cx0 = int(it->clipMinX < x86::reg32(gw) ? it->clipMinX : x86::reg32(gw));
+                        const int cy0 = int(it->clipMinY < x86::reg32(gh) ? it->clipMinY : x86::reg32(gh));
+                        const int cx1 = int(it->clipMaxX < x86::reg32(gw) ? it->clipMaxX : x86::reg32(gw));
+                        const int cy1 = int(it->clipMaxY < x86::reg32(gh) ? it->clipMaxY : x86::reg32(gh));
+                        const bool fullScreen = cx0 <= 0 && cy0 <= 0 && cx1 >= gw && cy1 >= gh;
+                        if (!s_vitaHonourClipWindow || fullScreen || cx1 <= cx0 || cy1 <= cy0)
+                        {
+                            glDisable(GL_SCISSOR_TEST);
+                        }
+                        else
+                        {
+                            glEnable(GL_SCISSOR_TEST);
+                            glScissor(vpX + cx0 * vpW / gw,
+                                      vpY + (gh - cy1) * vpH / gh,
+                                      (cx1 - cx0) * vpW / gw,
+                                      (cy1 - cy0) * vpH / gh);
+                        }
+                    }
                     if (drawTextured)
                     {
                         glEnable(GL_TEXTURE_2D);
                         glBindTexture(GL_TEXTURE_2D, m_atlas);
                         glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-                        if (m_alphaTestEnabled || m_chromakeyEnabled)
+                        if (it->alphaTest)
                         {
                             glEnable(GL_ALPHA_TEST);
-                            glAlphaFunc(GL_GREATER, float(m_alphaTestReference) / 255.0f);
+                            glAlphaFunc(GL_GREATER, float(it->alphaRef) / 255.0f);
                         }
                         else
                         {
@@ -568,6 +607,7 @@ void GlideRenderer::swap()
                 glDepthMask(GL_TRUE);
                 glDisable(GL_BLEND);
                 glDisable(GL_ALPHA_TEST);
+                glDisable(GL_SCISSOR_TEST);
                 m_drawCalls.clear();
                 glFlush();
                 m_renderer->finishFrame();
@@ -787,16 +827,38 @@ void GlideRenderer::setChromakeyValue(x86::reg32 color)
 
 void GlideRenderer::setChromakeyEnabled(bool enabled)
 {
-    m_chromakeyEnabled = enabled;
+    if (enabled != m_chromakeyEnabled)
+    {
+        flush();
+        m_chromakeyEnabled = enabled;
+    }
 }
 
 void GlideRenderer::setAlphaTestReference(x86::reg8 value)
 {
-    m_alphaTestReference = value;
+    if (value != m_alphaTestReference)
+    {
+        flush();
+        m_alphaTestReference = value;
+    }
+}
+
+void GlideRenderer::setClipWindow(x86::reg32 minX, x86::reg32 minY, x86::reg32 maxX, x86::reg32 maxY)
+{
+    if (minX != m_clipMinX || minY != m_clipMinY || maxX != m_clipMaxX || maxY != m_clipMaxY)
+    {
+        flush();
+        m_clipMinX = minX;
+        m_clipMinY = minY;
+        m_clipMaxX = maxX;
+        m_clipMaxY = maxY;
+    }
 }
 
 void GlideRenderer::setAlphaTestEnabled(bool enabled)
 {
+    if (enabled != m_alphaTestEnabled)
+        flush();
     m_alphaTestEnabled = enabled;
 }
 

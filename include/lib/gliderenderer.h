@@ -50,6 +50,11 @@ struct DrawCall
     bool zTest;
     bool zBuffer;
     bool alphaBlend;
+    /* Per-draw-call Glide state that used to be sampled once per frame at
+     * swap() time (so every draw call saw the last value set). */
+    bool alphaTest;                 /* alpha test OR chromakey active */
+    x86::reg8 alphaRef;
+    x86::reg32 clipMinX, clipMinY, clipMaxX, clipMaxY;
 };
 
 class GlideRenderer: public GenericResource
@@ -73,6 +78,7 @@ public:
     void setChromakeyEnabled(bool enabled);
     void setAlphaTestReference(x86::reg8 value);
     void setAlphaTestEnabled(bool enabled);
+    void setClipWindow(x86::reg32 minX, x86::reg32 minY, x86::reg32 maxX, x86::reg32 maxY);
     void setTexture(x86::reg32 tmu, x86::reg32 address);
     void setTextureData(x86::reg32 tmu, x86::reg32 address, const void* data,
                         x86::reg32 largeMipmap, x86::reg32 smallMimmap, TextureFormat format);
@@ -105,6 +111,7 @@ private:
     x86::reg8               m_alphaTestReference;
     bool                    m_chromakeyEnabled;
     bool                    m_alphaTestEnabled;
+    x86::reg32              m_clipMinX, m_clipMinY, m_clipMaxX, m_clipMaxY;
     bool                    m_zBuffer;
     bool                    m_zTest;
     bool                    m_alphaBlend;
