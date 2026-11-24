@@ -94,6 +94,7 @@ private:
     unsigned int            m_framebuffer;
     GlVertex*               m_vertices;
     x86::reg32              m_vertexCount;
+    x86::reg32              m_vertexCapacity;
     std::vector<DrawCall>   m_drawCalls;
     unsigned int            m_vertexBuffer;
     unsigned int            m_vertexArray;
