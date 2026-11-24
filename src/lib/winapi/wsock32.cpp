@@ -1,363 +1,251 @@
 #include <winapi/wsock32.h>
-#include <x86.h>
 #include <lib/socket.h>
+#include <SDL3/SDL.h>
+#include <cerrno>
+#include <chrono>
+#include <algorithm>
+#include <cstring>
+#include <cstdio>
+#include <vector>
 
-
-namespace win32 { namespace wsock32
+namespace win32::wsock32
 {
-
-enum SocketLevel
+namespace
 {
-    SOL_SOCKET = 0xffff
-};
-
-enum SocketOption
+thread_local int socketError = 0;
+int fail(int error) { socketError = error; return -1; }
+std::shared_ptr<Socket::State> stateFor(WinApplication* app, SOCKET handle)
 {
-    SO_DEBUG                    = 0x0001,
-    SO_ACCEPTCONN               = 0x0002,
-    SO_REUSEADDR                = 0x0004,
-    SO_KEEPALIVE                = 0x0008,
-    SO_DONTROUTE                = 0x0010,
-    SO_BROADCAST                = 0x0020,
-    SO_USELOOPBACK              = 0x0040,
-    SO_LINGER                   = 0x0080,
-    SO_OOBINLINE                = 0x0100,
-    SO_DONTLINGER               = ~SO_LINGER,
-    
-    SO_SNDBUF                   = 0x1001,
-    SO_RCVBUF                   = 0x1002,
-    SO_SNDLOWAT                 = 0x1003,
-    SO_RCVLOWAT                 = 0x1004,
-    SO_SNDTIMEO                 = 0x1005,
-    SO_RCVTIMEO                 = 0x1006,
-    SO_ERROR                    = 0x1007,
-    SO_TYPE                     = 0x1008,
-    
-    IPX_PTYPE                   = 0x4000,
-    IPX_FILTERPTYPE             = 0x4001,
-    IPX_DSTYPE                  = 0x4002,
-    IPX_STOPFILTERPTYPE         = 0x4003,
-    IPX_EXTENDED_ADDRESS        = 0x4004,
-    IPX_RECVHDR                 = 0x4005,
-    IPX_MAXSIZE                 = 0x4006,
-    IPX_ADDRESS                 = 0x4007,
-    IPX_GETNETINFO              = 0x4008,
-    IPX_GETNETINFO_NORIP        = 0x4009,
-    IPX_SPXGETCONNECTIONSTATUS  = 0x400b,
-    IPX_ADDRESS_NOTIFY          = 0x400c,
-    IPX_MAX_ADAPTER_NUM         = 0x400d,
-    IPX_RERIPNETNUMBER          = 0x400e,
-    IPX_RECEIVE_BROADCAST       = 0x400f,
-    IPX_IMMEDIATESPXACK         = 0x4010,
-
-    SO_CONNDATA                 = 0x7000,
-    SO_CONNOPT                  = 0x7001,
-    SO_DISCDATA                 = 0x7002,
-    SO_DISCOPT                  = 0x7003,
-    SO_CONNDATALEN              = 0x7004,
-    SO_CONNOPTLEN               = 0x7005,
-    SO_DISCDATALEN              = 0x7006,
-    SO_DISCOPTLEN               = 0x7007,
-    
-    SO_OPENTYPE                 = 0x7008,
-    
-    SO_SYNCHRONOUS_ALERT        = 0x10,
-    SO_SYNCHRONOUS_NONALERT     = 0x20,
-    
-    SO_MAXDG                    = 0x7009,
-    SO_MAXPATHDG                = 0x700A,
-    SO_UPDATE_ACCEPT_CONTEXT    = 0x700B,
-    SO_CONNECT_TIME             = 0x700C
-};
-
-int select(WinApplication* app, x86::CPU& cpu, int nfds,
-           fd_set* readfds, fd_set* writefds, fd_set* exceptfds,
-           const timeval *timeout)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(nfds);
-    NFS2_USE(readfds);
-    NFS2_USE(writefds);
-    NFS2_USE(exceptfds);
-    NFS2_USE(timeout);
-    NFS2_ASSERT(false);
-    return -1;
+    if (!Socket::initialized(app)) { socketError = 10093; return {}; }
+    auto socket = dynamic_cast<Socket*>(app->getResource(handle));
+    if (!socket || socket->state()->closed) { socketError = 10038; return {}; }
+    return socket->state();
 }
-
-int sendto(WinApplication* app, x86::CPU& cpu, SOCKET s, const char* buf, int len,
-           int flags, const sockaddr* to, int tolen)
+bool readAddress(const sockaddr* name, int length, IPXAddress& address)
 {
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(s);
-    NFS2_USE(flags);
-    NFS2_USE(buf);
-    NFS2_USE(len);
-    NFS2_USE(to);
-    NFS2_USE(tolen);
-    NFS2_ASSERT(false);
-    return -1;
+    if (!name || length < 14) { socketError = 10014; return false; }
+    if (name->sa_family != 6) { socketError = 10047; return false; }
+    memcpy(address.data(), name->sa_data, address.size());
+    return true;
 }
-
-int getsockname(WinApplication* app, x86::CPU& cpu,
-                SOCKET s, sockaddr* name, int* namelen)
+bool writeAddress(const IPXAddress& address, sockaddr* name, int* length)
 {
-    NFS2_USE(cpu);
-    Socket* socket = dynamic_cast<Socket*>(app->getResource(s));
-    x86::reg32 address = socket->getAddress();
-    x86::reg64 node = socket->getNode();
-    x86::reg16 port = socket->getPort();
-    *namelen = 14;
-    name->sa_data[0] = (address) & 0xff;
-    name->sa_data[1] = (address>>8) & 0xff;
-    name->sa_data[2] = (address>>16) & 0xff;
-    name->sa_data[3] = (address>>24) & 0xff;
-    name->sa_data[4] = (node) & 0xff;
-    name->sa_data[5] = (node >> 8) & 0xff;
-    name->sa_data[6] = (node >> 16) & 0xff;
-    name->sa_data[7] = (node >> 24) & 0xff;
-    name->sa_data[8] = (node >> 32) & 0xff;
-    name->sa_data[9] = (node >> 40) & 0xff;
-    name->sa_data[10] = (port) & 0xff;
-    name->sa_data[11] = (port >> 8) & 0xff;
+    if (!name || !length || *length < 14) { socketError = 10014; return false; }
+    name->sa_family = 6;
+    memcpy(name->sa_data, address.data(), address.size());
+    *length = 14;
+    return true;
+}
+int waitNative(WinApplication* app, x86::CPU& cpu, int milliseconds)
+{
+    // The transport is polled (non-blocking). Release the guest execution lock
+    // while sleeping so the UI, the send path and closesocket can keep running.
+    app->unlockContext(cpu);
+    SDL_Delay(Uint32(milliseconds));
+    app->lockContext(cpu);
     return 0;
 }
-
-int bind(WinApplication* app, x86::CPU& cpu,
-         SOCKET s, const sockaddr* name, int namelen)
+int unsupported(WinApplication* app, SOCKET handle)
 {
-    NFS2_USE(cpu);
-    NFS2_USE(namelen);
-    x86::reg32 address = name->sa_data[0]
-                      | (name->sa_data[1] << 8)
-                      | (name->sa_data[2] << 16)
-                      | (name->sa_data[3] << 24);
-    x86::reg64 node = x86::reg64(name->sa_data[4])
-                   | (x86::reg64(name->sa_data[5]) << 8)
-                   | (x86::reg64(name->sa_data[6]) << 16)
-                   | (x86::reg64(name->sa_data[7]) << 24)
-                   | (x86::reg64(name->sa_data[8]) << 32)
-                   | (x86::reg64(name->sa_data[9]) << 40);
-    x86::reg16 port = name->sa_data[10] | (name->sa_data[11] << 8);
-    Socket* socket = dynamic_cast<Socket*>(app->getResource(s));
-    return socket->bind(address, node, port);
+    return stateFor(app, handle) ? fail(10045) : -1;
+}
 }
 
-unsigned short htons(WinApplication* app, x86::CPU& cpu, unsigned short hostshort)
+int select(WinApplication* app, x86::CPU& cpu, int, fd_set* readfds,
+           fd_set* writefds, fd_set* exceptfds, const timeval* timeout)
 {
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    return (hostshort >> 8) | (hostshort << 8);
+    if (!Socket::initialized(app)) return fail(10093);
+    if ((!readfds || !readfds->fd_count) && (!writefds || !writefds->fd_count) && (!exceptfds || !exceptfds->fd_count)) return fail(10022);
+    if (timeout && (timeout->tv_sec < 0 || timeout->tv_usec < 0 || timeout->tv_usec >= 1000000)) return fail(10022);
+    struct Entry { SOCKET handle; std::shared_ptr<Socket::State> state; };
+    std::vector<Entry> reads, writes, exceptions;
+    auto capture = [&](fd_set* set, std::vector<Entry>& entries) {
+        if (!set) return true;
+        if (set->fd_count > FD_SETSIZE_WSA) { socketError = 10022; return false; }
+        for (unsigned i = 0; i < set->fd_count; ++i)
+        {
+            auto state = stateFor(app, set->fd_array[i]);
+            if (!state) return false;
+            entries.push_back({set->fd_array[i], state});
+        }
+        return true;
+    };
+    if (!capture(readfds, reads) || !capture(writefds, writes) || !capture(exceptfds, exceptions)) return -1;
+    const auto deadline = timeout ? std::chrono::steady_clock::now() + std::chrono::seconds(timeout->tv_sec) +
+        std::chrono::microseconds(timeout->tv_usec) : std::chrono::steady_clock::time_point::max();
+    for (;;)
+    {
+        if (cpu.terminate) return fail(10004);
+        for (auto* entries : {&reads, &writes, &exceptions})
+            for (const auto& entry : *entries) if (entry.state->closed) return fail(10038);
+        fd_set readyRead{}, readyWrite{};
+        for (const auto& entry : reads)
+        {
+            if (int error = entry.state->pump()) return fail(error);
+            if (!entry.state->packets.empty()) readyRead.fd_array[readyRead.fd_count++] = entry.handle;
+        }
+        // Datagram sends never wait for an IPX connection.
+        for (const auto& entry : writes) readyWrite.fd_array[readyWrite.fd_count++] = entry.handle;
+        unsigned ready = readyRead.fd_count + readyWrite.fd_count;
+        if (ready || std::chrono::steady_clock::now() >= deadline)
+        {
+            if (readfds) *readfds = readyRead;
+            if (writefds) *writefds = readyWrite;
+            if (exceptfds) *exceptfds = {};
+            return int(ready);
+        }
+        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+        int wait = timeout ? int(std::clamp<int64_t>(remaining, 1, 4)) : 4;
+        waitNative(app, cpu, wait);
+    }
 }
-
-unsigned short ntohs(WinApplication* app, x86::CPU& cpu, unsigned short netshort)
+int sendto(WinApplication* app, x86::CPU&, SOCKET handle, const char* bytes, int length,
+           int flags, const sockaddr* destination, int destinationLength)
 {
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    return (netshort >> 8) | (netshort << 8);
+    auto state = stateFor(app, handle);
+    if (!state) return -1;
+    if (length < 0) return fail(10022);
+    if (length && !bytes) return fail(10014);
+    if (flags) return fail(10045);
+    IPXAddress address;
+    if (!readAddress(destination, destinationLength, address)) return -1;
+    int error = state->send(bytes, length, address);
+    return error ? fail(error) : length;
 }
-
-unsigned long inet_addr(WinApplication* app, x86::CPU& cpu, const char *cp)
+int recvfrom(WinApplication* app, x86::CPU& cpu, SOCKET handle, char* bytes, int length,
+             int flags, sockaddr* source, int* sourceLength)
 {
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(cp);
-    NFS2_ASSERT(false);
-    return -1;
+    auto state = stateFor(app, handle);
+    if (!state) return -1;
+    if (!state->bound || length < 0) return fail(10022);
+    if ((length && !bytes) || (source && (!sourceLength || *sourceLength < 14))) return fail(10014);
+    if (flags & ~2) return fail(10045); // MSG_PEEK
+    for (;;)
+    {
+        if (cpu.terminate) return fail(10004);
+        if (int error = state->pump()) return fail(error);
+        if (!state->packets.empty())
+        {
+            const auto& packet = state->packets.front();
+            size_t size = packet.bytes.size();
+            if (source && !writeAddress(packet.source, source, sourceLength)) return -1;
+            if (length) memcpy(bytes, packet.bytes.data(), std::min<size_t>(length, size));
+            if (!(flags & 2)) state->packets.pop_front();
+            return size > size_t(length) ? fail(10040) : int(size);
+        }
+        if (state->nonblocking) return fail(10035);
+        waitNative(app, cpu, 2);
+    }
 }
-
-Packed<char> inet_ntoa(WinApplication* app, x86::CPU& cpu, x86::reg32 in)
+int getsockname(WinApplication* app, x86::CPU&, SOCKET handle, sockaddr* name, int* length)
 {
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    return Packed<char>(Socket::netToA(app, in));
+    auto state = stateFor(app, handle);
+    if (!state) return -1;
+    if (!state->bound) return fail(10022);
+    return writeAddress(state->address, name, length) ? 0 : -1;
 }
-
-int gethostname(WinApplication* app, x86::CPU& cpu, char *name, int namelen)
+int bind(WinApplication* app, x86::CPU&, SOCKET handle, const sockaddr* name, int length)
 {
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(name);
-    NFS2_USE(namelen);
-    NFS2_ASSERT(false);
-    return -1;
+    auto state = stateFor(app, handle);
+    if (!state) return -1;
+    IPXAddress address;
+    if (!readAddress(name, length, address)) return -1;
+    int error = state->bind(address);
+    return error ? fail(error) : 0;
 }
-
-int setsockopt(WinApplication* app, x86::CPU& cpu,
-               SOCKET s, int level, int optname, const char *optval, int optlen)
+unsigned short (htons)(WinApplication*, x86::CPU&, unsigned short value) { return (value >> 8) | (value << 8); }
+unsigned short (ntohs)(WinApplication*, x86::CPU&, unsigned short value) { return (value >> 8) | (value << 8); }
+unsigned long inet_addr(WinApplication*, x86::CPU&, const char* text)
 {
-    NFS2_USE(cpu);
-    NFS2_ASSERT(level == SOL_SOCKET);
-    NFS2_USE(optval);
-    NFS2_USE(optlen);
-    SocketOption option = SocketOption(optname);
-    Socket* socket = dynamic_cast<Socket*>(app->getResource(s));
-    NFS2_USE(option);
-    NFS2_USE(socket);
+    unsigned a, b, c, d; char extra;
+    if (!text || sscanf(text, "%u.%u.%u.%u%c", &a, &b, &c, &d, &extra) != 4 || a > 255 || b > 255 || c > 255 || d > 255) return 0xffffffffu;
+    return a | (b << 8) | (c << 16) | (d << 24);
+}
+Packed<char> inet_ntoa(WinApplication* app, x86::CPU&, x86::reg32 value)
+{
+    if (!Socket::initialized(app)) { fail(10093); return Packed<char>(); }
+    return Packed<char>(Socket::netToA(app, value));
+}
+int gethostname(WinApplication* app, x86::CPU&, char* name, int length)
+{
+    if (!Socket::initialized(app)) return fail(10093);
+    if (!name || length < 5) return fail(10014);
+    memcpy(name, "NFS3", 5);
     return 0;
 }
-
-int closesocket(WinApplication* app, x86::CPU& cpu, SOCKET s)
+int setsockopt(WinApplication* app, x86::CPU&, SOCKET handle, int level, int option, const char* bytes, int length)
 {
-    NFS2_USE(cpu);
-    app->freeResource(s);
+    auto state = stateFor(app, handle);
+    if (!state) return -1;
+    if (!bytes || length < 4) return fail(10014);
+    int value; memcpy(&value, bytes, 4);
+    if ((level == 0xffff || level == 1000) && option == 0x400f) return 0; // IPX_RECEIVE_BROADCAST compatibility
+    if (level == 1000)
+    {
+        if (option == 0x4000) { state->packetType = uint8_t(value); return 0; }
+        if (option == 0x4001) { state->filterType = uint8_t(value); return 0; }
+        if (option == 0x4003) { state->filterType = -1; return 0; }
+    }
+    if (level != 0xffff) return fail(10042);
+    if (option == 0x20) { state->broadcast = value != 0; return 0; }
+    if (option == 4) return 0; // Guest ports do not map to fixed native UDP ports.
+    return fail(10042);
+}
+int closesocket(WinApplication* app, x86::CPU&, SOCKET handle)
+{
+    if (!stateFor(app, handle)) return -1;
+    return app->freeResourceIfPresent(handle) ? 0 : fail(10038);
+}
+SOCKET socket(WinApplication* app, x86::CPU&, int family, int type, int protocol)
+{
+    if (!Socket::initialized(app)) { fail(10093); return SOCKET(-1); }
+    if (family != 6) { fail(10047); return SOCKET(-1); }
+    if (type != 2) { fail(10044); return SOCKET(-1); }
+    if (protocol != 0 && protocol != 1000) { fail(10043); return SOCKET(-1); }
+    auto socket = std::make_unique<Socket>(app);
+    if (socket->state()->descriptor < 0) { fail(Socket::winsockError(errno)); return SOCKET(-1); }
+    return app->allocateResource(socket.release());
+}
+int WSACleanup(WinApplication* app, x86::CPU&) { return Socket::fini(app) ? 0 : fail(10093); }
+int WSAStartup(WinApplication* app, x86::CPU&, WORD requested, LPWSADATA data)
+{
+    if (!data) return 10014;
+    if ((requested & 255) < 1) return 10092;
+    memset(data, 0, sizeof(*data));
+    data->wVersion = requested == 1 ? 1 : 0x0101;
+    data->wHighVersion = 0x0101;
+    data->iMaxSockets = 64;
+    data->iMaxUdpDg = 1600;
+    strcpy(data->szDescription, "NFS IPX over UDP broadcast");
+    strcpy(data->szSystemStatus, "Ready");
+    Socket::init(app);
     return 0;
 }
-
-SOCKET socket(WinApplication* app, x86::CPU& cpu, int af, int type, int protocol)
+Packed<hostent> gethostbyname(WinApplication*, x86::CPU&, const char*) { fail(11001); return Packed<hostent>(); }
+int ioctlsocket(WinApplication* app, x86::CPU&, SOCKET handle, x86::sreg32 command, x86::reg32* value)
 {
-    NFS2_USE(cpu);
-    NFS2_ASSERT(af == 6);    // AF_IPX
-    NFS2_ASSERT(type == 2);  // SOCK_DGRAM
-    NFS2_ASSERT(protocol == 1000);
-    return app->allocateResource(new Socket());
+    auto state = stateFor(app, handle);
+    if (!state) return -1;
+    if (!value) return fail(10014);
+    if (uint32_t(command) == 0x8004667e) { state->nonblocking = *value != 0; return 0; }
+    if (uint32_t(command) == 0x4004667f)
+    {
+        if (int error = state->pump()) return fail(error);
+        *value = state->packets.empty() ? 0 : uint32_t(state->packets.front().bytes.size());
+        return 0;
+    }
+    return fail(10022);
 }
-
-int WSACleanup(WinApplication* app, x86::CPU& cpu)
+int __WSAFDIsSet(WinApplication*, x86::CPU&, SOCKET handle, fd_set* set)
 {
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    Socket::fini();
-    return 0;
+    if (!set || set->fd_count > FD_SETSIZE_WSA) return 0;
+    return std::find(set->fd_array, set->fd_array + set->fd_count, handle) != set->fd_array + set->fd_count;
 }
-
-int WSAStartup(WinApplication* app, x86::CPU& cpu, WORD wVersionRequired, LPWSADATA lpWSAData)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_ASSERT(wVersionRequired == 0x0101);
-    lpWSAData->wVersion = 1;
-    lpWSAData->wHighVersion = 1;
-    lpWSAData->iMaxSockets = 16;
-    lpWSAData->iMaxUdpDg = 1600;
-    lpWSAData->lpVendorInfo = Packed<char>();
-    lpWSAData->szDescription[0] = 0;
-    lpWSAData->szSystemStatus[0] = 0;
-    Socket::init();
-    return 0;
+int listen(WinApplication* app, x86::CPU&, SOCKET handle, int) { return unsupported(app, handle); }
+int shutdown(WinApplication* app, x86::CPU&, SOCKET handle, int) { return unsupported(app, handle); }
+int connect(WinApplication* app, x86::CPU&, SOCKET handle, const sockaddr*, int) { return unsupported(app, handle); }
+SOCKET accept(WinApplication* app, x86::CPU&, SOCKET handle, sockaddr*, int*) { unsupported(app, handle); return SOCKET(-1); }
+int send(WinApplication* app, x86::CPU&, SOCKET handle, const char*, int, int) { return unsupported(app, handle); }
+int recv(WinApplication* app, x86::CPU&, SOCKET handle, char*, int, int) { return unsupported(app, handle); }
+int WSAGetLastError(WinApplication*, x86::CPU&) { return socketError; }
 }
-
-int recvfrom(WinApplication* app, x86::CPU& cpu, SOCKET s, char* buf, int len,
-             int flags, sockaddr* from, int* fromlen)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(s);
-    NFS2_USE(buf);
-    NFS2_USE(len);
-    NFS2_USE(flags);
-    NFS2_USE(from);
-    NFS2_USE(fromlen);
-    NFS2_ASSERT(false);
-    return -1;
-}
-
-Packed<hostent> gethostbyname(WinApplication* app, x86::CPU& cpu, const char *name)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(name);
-    NFS2_ASSERT(false);
-    return Packed<hostent>();
-}
-
-int ioctlsocket(WinApplication* app, x86::CPU& cpu, SOCKET s,
-                x86::sreg32 cmd, x86::reg32* argp)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(s);
-    NFS2_USE(cmd);
-    NFS2_USE(argp);
-    NFS2_ASSERT(false);
-    return -1;
-}
-
-int listen(WinApplication* app, x86::CPU& cpu, SOCKET s, int backlog)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(s);
-    NFS2_USE(backlog);
-    NFS2_ASSERT(false);
-    return -1;
-}
-
-int shutdown(WinApplication* app, x86::CPU& cpu, SOCKET s, int how)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(s);
-    NFS2_USE(how);
-    NFS2_ASSERT(false);
-    return -1;
-}
-
-int connect(WinApplication* app, x86::CPU& cpu, SOCKET s,
-            const sockaddr *name, int namelen)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(s);
-    NFS2_USE(name);
-    NFS2_USE(namelen);
-    NFS2_ASSERT(false);
-    return -1;
-}
-
-SOCKET accept(WinApplication* app, x86::CPU& cpu, SOCKET s,
-              sockaddr *addr, int* addrlen)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(s);
-    NFS2_USE(addr);
-    NFS2_USE(addrlen);
-    NFS2_ASSERT(false);
-    return -1;
-}
-
-int __WSAFDIsSet(WinApplication* app, x86::CPU& cpu, SOCKET fd, fd_set* set)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(fd);
-    NFS2_USE(set);
-    NFS2_ASSERT(false);
-    return -1;
-}
-
-int send(WinApplication* app, x86::CPU& cpu, SOCKET s, const char* buf, int len, int flags)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(s);
-    NFS2_USE(buf);
-    NFS2_USE(len);
-    NFS2_USE(flags);
-    NFS2_ASSERT(false);
-    return -1;
-}
-
-int recv(WinApplication* app, x86::CPU& cpu, SOCKET s, char* buf, int len, int flags)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_USE(s);
-    NFS2_USE(buf);
-    NFS2_USE(len);
-    NFS2_USE(flags);
-    NFS2_ASSERT(false);
-    return -1;
-}
-
-int WSAGetLastError(WinApplication* app, x86::CPU& cpu)
-{
-    NFS2_USE(app);
-    NFS2_USE(cpu);
-    NFS2_ASSERT(false);
-    return -1;
-}
-
-}}

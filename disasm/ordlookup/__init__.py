@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import sys
 from . import ws2_32
+from . import wsock32
 from . import oleaut32
 
 '''
@@ -11,7 +12,7 @@ infoz.
 
 ords = {
     b'ws2_32.dll': ws2_32.ord_names,
-    b'wsock32.dll': ws2_32.ord_names,
+    b'wsock32.dll': wsock32.ord_names,
     b'oleaut32.dll': oleaut32.ord_names,
 }
 

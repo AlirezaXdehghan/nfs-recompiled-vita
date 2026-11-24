@@ -60,6 +60,16 @@ void Application::sub_4f5fc0(WinApplication* app, x86::CPU& cpu)
     return;
 }
 
+// Indirect IPX ready callback; the original vtable enters after sub_4f5fc0's store.
+void Application::sub_4f5fd0(WinApplication* app, x86::CPU& cpu)
+{
+  NFS2_USE(app);
+    // 004f5fd0  b801000000             -mov eax, 1
+    cpu.eax = 1;
+    // 004f5fd5  c3                     -ret
+    cpu.esp += 4;
+}
+
 /* align: skip 0x8d 0x80 0x00 0x00 0x00 0x00 0x8d 0x54 0x22 0x00 */
 void Application::sub_4f5fe0(WinApplication* app, x86::CPU& cpu)
 {

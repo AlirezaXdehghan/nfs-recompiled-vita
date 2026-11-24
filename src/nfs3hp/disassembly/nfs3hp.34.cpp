@@ -10298,6 +10298,11 @@ L_0x004e773f:
     if (cpu.terminate) return;
     // 004e7746  89c2                   -mov edx, eax
     cpu.edx = cpu.eax;
+    // The guest clock runs on another serialized worker. Its tick cannot advance
+    // while this original busy wait owns the execution lock (IPX room search).
+    app->unlockContext(cpu);
+    win32::Thread::sleep(1);
+    app->lockContext(cpu);
     // 004e7748  ebe3                   -jmp 0x4e772d
     goto L_0x004e772d;
 }

@@ -3,6 +3,8 @@
 #include <lib/event.h>
 #include <lib/library.h>
 #include <lib/registry.h>
+#include <lib/socket.h>
+#include <lib/thread.h>
 #include <winapi/types.h>
 #include <SDL3/SDL.h>
 #include <x86.h>
@@ -90,6 +92,7 @@ WinApplication::~WinApplication()
         delete it->second;
     }
     m_resourceContext->unlock();
+    Socket::cleanup(this);
     Event::fini();
     MemMap::fini();
     delete m_resourceContext;
@@ -183,6 +186,22 @@ void WinApplication::registerMethod(x86::reg32 pointer, Method method)
     m_methods[pointer-0x400000] = method;
 }
 
+bool WinApplication::freeResourceIfPresent(x86::reg32 resource)
+{
+    m_resourceContext->lock();
+    std::map<x86::reg32, GenericResource*>::iterator found = m_resources.find(resource);
+    bool present = found != m_resources.end();
+    if (present)
+    {
+        GenericResource* value = found->second;
+        m_resources.erase(found);
+        value->setResourceIndex(0);
+        delete value;
+    }
+    m_resourceContext->unlock();
+    return present;
+}
+
 int WinApplication::runThread(x86::CPU& cpu, x86::reg32 entryPoint, x86::reg32 parameter, bool threadLock)
 {
     if (!m_cpu.terminate)
@@ -190,6 +209,8 @@ int WinApplication::runThread(x86::CPU& cpu, x86::reg32 entryPoint, x86::reg32 p
         win32::MemMap threadStorage(4096);
         win32::MemMap threadStack(1024 * 1024);
         cpu.init(threadStorage.getBlockStart(), entryPoint);
+        /* TEB.ClientId.UniqueThread: the original IPX code uses it as a guest thread identity. */
+        getMemory<x86::reg32>(cpu.efs + 4) = Thread::currentThreadId();
         getMemory<Mutex*>(cpu.efs + 8) = threadLock ? m_executionContext : nullptr;
         LockContext ctx(*this, cpu);
         cpu.esp = threadStack.getBlockStart() + threadStack.getBlockSize() - 8;

@@ -143,6 +143,7 @@ class WinApplication
 public:
     GenericResource* getResource(x86::reg32 resource);
     void freeResource(x86::reg32 resource);
+    bool freeResourceIfPresent(x86::reg32 resource);
     x86::reg32 allocateResource(GenericResource* resource);
     x86::reg32 getAppName() const { return m_appName->getBlockStart(); }
     x86::reg32 getAppNameW() const { return m_appNameW->getBlockStart(); }

@@ -3936,6 +3936,7 @@ Application::Application(const char* appName)
     registerMethod(0x004f5f90, {"<Application>sub_4f5f90", &Application::sub_4f5f90});
     registerMethod(0x004f5fa0, {"<Application>sub_4f5fa0", &Application::sub_4f5fa0});
     registerMethod(0x004f5fc0, {"<Application>sub_4f5fc0", &Application::sub_4f5fc0});
+    registerMethod(0x004f5fd0, {"<Application>sub_4f5fd0", &Application::sub_4f5fd0});
     registerMethod(0x004f5fe0, {"<Application>sub_4f5fe0", &Application::sub_4f5fe0});
     registerMethod(0x004f6010, {"<Application>sub_4f6010", &Application::sub_4f6010});
     registerMethod(0x004f6030, {"<Application>sub_4f6030", &Application::sub_4f6030});
@@ -7300,9 +7301,9 @@ Application::Application(const char* appName)
     registerMethod(0x00400a82, {"<version>VerQueryValueA", &win32::Wrapper<decltype(&win32::version::VerQueryValueA), &win32::version::VerQueryValueA>::stdcall});
     registerMethod(0x00400a83, {"<wsock32>gethostname", &win32::Wrapper<decltype(&win32::wsock32::gethostname), &win32::wsock32::gethostname>::stdcall});
     registerMethod(0x00400a84, {"<wsock32>ntohs", &win32::Wrapper<decltype(&win32::wsock32::ntohs), &win32::wsock32::ntohs>::stdcall});
-    registerMethod(0x00400a85, {"<wsock32>inet_addr", &win32::Wrapper<decltype(&win32::wsock32::inet_addr), &win32::wsock32::inet_addr>::stdcall});
+    registerMethod(0x00400a85, {"<wsock32>inet_ntoa", &win32::Wrapper<decltype(&win32::wsock32::inet_ntoa), &win32::wsock32::inet_ntoa>::stdcall});
     registerMethod(0x00400a86, {"<wsock32>gethostbyname", &win32::Wrapper<decltype(&win32::wsock32::gethostbyname), &win32::wsock32::gethostbyname>::stdcall});
-    registerMethod(0x00400a87, {"<wsock32>ioctlsocket", &win32::Wrapper<decltype(&win32::wsock32::ioctlsocket), &win32::wsock32::ioctlsocket>::stdcall});
+    registerMethod(0x00400a87, {"<wsock32>inet_addr", &win32::Wrapper<decltype(&win32::wsock32::inet_addr), &win32::wsock32::inet_addr>::stdcall});
     registerMethod(0x00400a88, {"<wsock32>listen", &win32::Wrapper<decltype(&win32::wsock32::listen), &win32::wsock32::listen>::stdcall});
     registerMethod(0x00400a89, {"<wsock32>shutdown", &win32::Wrapper<decltype(&win32::wsock32::shutdown), &win32::wsock32::shutdown>::stdcall});
     registerMethod(0x00400a8a, {"<wsock32>connect", &win32::Wrapper<decltype(&win32::wsock32::connect), &win32::wsock32::connect>::stdcall});
@@ -7316,7 +7317,7 @@ Application::Application(const char* appName)
     registerMethod(0x00400a92, {"<wsock32>getsockname", &win32::Wrapper<decltype(&win32::wsock32::getsockname), &win32::wsock32::getsockname>::stdcall});
     registerMethod(0x00400a93, {"<wsock32>bind", &win32::Wrapper<decltype(&win32::wsock32::bind), &win32::wsock32::bind>::stdcall});
     registerMethod(0x00400a94, {"<wsock32>htons", &win32::Wrapper<decltype(&win32::wsock32::htons), &win32::wsock32::htons>::stdcall});
-    registerMethod(0x00400a95, {"<wsock32>inet_ntoa", &win32::Wrapper<decltype(&win32::wsock32::inet_ntoa), &win32::wsock32::inet_ntoa>::stdcall});
+    registerMethod(0x00400a95, {"<wsock32>ioctlsocket", &win32::Wrapper<decltype(&win32::wsock32::ioctlsocket), &win32::wsock32::ioctlsocket>::stdcall});
     registerMethod(0x00400a96, {"<wsock32>setsockopt", &win32::Wrapper<decltype(&win32::wsock32::setsockopt), &win32::wsock32::setsockopt>::stdcall});
     registerMethod(0x00400a97, {"<wsock32>recvfrom", &win32::Wrapper<decltype(&win32::wsock32::recvfrom), &win32::wsock32::recvfrom>::stdcall});
     registerMethod(0x00400a98, {"<wsock32>WSACleanup", &win32::Wrapper<decltype(&win32::wsock32::WSACleanup), &win32::wsock32::WSACleanup>::stdcall});

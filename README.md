@@ -88,6 +88,20 @@ the game no longer sees every press twice). NFS3 is unchanged.
 Glide `grClipWindow` is now honoured as a GL scissor, and alpha test / chromakey
 state is applied per draw call instead of once per frame.
 
+### LAN multiplayer (NFS III, experimental)
+
+NFS III's **Connect Players -> IPX** works over Wi-Fi. The game speaks IPX, which
+doesn't exist on modern networks, so each IPX packet is wrapped and sent as a UDP
+broadcast on port 28901; every Vita on the same Wi-Fi network sees it and the
+packets are filtered by their IPX destination. No IP addresses or server needed.
+
+1. Connect every Vita to the same Wi-Fi network (no client isolation / guest network).
+2. Use identical game data, cars and tracks on all of them.
+3. Open **Connect Players**, choose **IPX**, then host or join as on PC.
+
+The port logs `[lan] ...` lines (bind, send, receive) to help diagnose problems.
+NFS II LAN is not wired up yet.
+
 ---
 
 ## Credits

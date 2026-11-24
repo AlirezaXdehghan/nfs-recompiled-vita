@@ -3920,6 +3920,7 @@ private:
     static void sub_4f5f90(WinApplication* app, x86::CPU& cpu);
     static void sub_4f5fa0(WinApplication* app, x86::CPU& cpu);
     static void sub_4f5fc0(WinApplication* app, x86::CPU& cpu);
+    static void sub_4f5fd0(WinApplication* app, x86::CPU& cpu);
     static void sub_4f5fe0(WinApplication* app, x86::CPU& cpu);
     static void sub_4f6010(WinApplication* app, x86::CPU& cpu);
     static void sub_4f6030(WinApplication* app, x86::CPU& cpu);

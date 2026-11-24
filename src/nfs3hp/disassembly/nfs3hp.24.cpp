@@ -22504,6 +22504,11 @@ void Application::sub_4a65b0(WinApplication* app, x86::CPU& cpu)
     cpu.esp -= 4;
     // 004a65b2  89e5                   -mov ebp, esp
     cpu.ebp = cpu.esp;
+    // Original join / race handshakes poll here without presenting a frame.
+    // Let the serialized clock and receive workers advance their state.
+    app->unlockContext(cpu);
+    win32::Thread::sleep(1);
+    app->lockContext(cpu);
     // 004a65b4  31c0                   -xor eax, eax
     cpu.eax ^= x86::reg32(x86::sreg32(cpu.eax));
     // 004a65b6  e875100400             -call 0x4e7630
@@ -22527,6 +22532,9 @@ void Application::sub_4a65b0(WinApplication* app, x86::CPU& cpu)
         goto L_0x004a65d1;
     }
 L_0x004a65c8:
+    app->unlockContext(cpu);
+    win32::Thread::sleep(1);
+    app->lockContext(cpu);
     // 004a65c8  803d1948560000         +cmp byte ptr [0x564819], 0
     {
         x86::reg8 tmp1 = app->getMemory<x86::reg8>(x86::reg32(5654553) /* 0x564819 */);
@@ -23946,6 +23954,10 @@ L_0x004a6aa1:
     // 004a6aab  e9c4000000             -jmp 0x4a6b74
     goto L_0x004a6b74;
 L_0x004a6ab0:
+    // Let the receive worker update the remote player's barrier acknowledgement.
+    app->unlockContext(cpu);
+    win32::Thread::sleep(1);
+    app->lockContext(cpu);
     // 004a6ab0  8d1436                 -lea edx, [esi + esi]
     cpu.edx = x86::reg32(cpu.esi + cpu.esi * 1);
     // 004a6ab3  8b82b8227a00           -mov eax, dword ptr [edx + 0x7a22b8]
@@ -24172,6 +24184,10 @@ L_0x004a6b7a:
         goto L_0x004a6bd5;
     }
 L_0x004a6b87:
+    // The client waits for the host's synchronization phase on another guest thread.
+    app->unlockContext(cpu);
+    win32::Thread::sleep(1);
+    app->lockContext(cpu);
     // 004a6b87  a19a227a00             -mov eax, dword ptr [0x7a229a]
     cpu.eax = app->getMemory<x86::reg32>(x86::reg32(8004250) /* 0x7a229a */);
     // 004a6b8c  8b75fc                 -mov esi, dword ptr [ebp - 4]
@@ -24669,6 +24685,10 @@ L_0x004a6d13:
     // 004a6d32  e9af000000             -jmp 0x4a6de6
     goto L_0x004a6de6;
 L_0x004a6d37:
+    // The final join acknowledgement is filled by the serialized receive worker.
+    app->unlockContext(cpu);
+    win32::Thread::sleep(1);
+    app->lockContext(cpu);
     // 004a6d37  803d08ed550000         +cmp byte ptr [0x55ed08], 0
     {
         x86::reg8 tmp1 = app->getMemory<x86::reg8>(x86::reg32(5631240) /* 0x55ed08 */);

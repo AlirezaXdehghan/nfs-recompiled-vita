@@ -42,12 +42,6 @@ typedef struct in_addr
         struct { unsigned short s_w1, s_w2; } S_un_w;
         ULONG S_addr;
     } S_un;
-#define s_addr  S_un.S_addr /* can be used for most tcp & ip code */
-#define s_host  S_un.S_un_b.s_b2    // host on imp
-#define s_net   S_un.S_un_b.s_b1    // network
-#define s_imp   S_un.S_un_w.s_w2    // imp
-#define s_impno S_un.S_un_b.s_b4    // imp #
-#define s_lh    S_un.S_un_b.s_b3    // logical host
 } IN_ADDR, *PIN_ADDR;
 
 
@@ -55,12 +49,14 @@ struct WSADATA
 {
     WORD           wVersion;
     WORD           wHighVersion;
+    char           szDescription[WSADESCRIPTION_LEN + 1];
+    char           szSystemStatus[WSASYS_STATUS_LEN + 1];
     unsigned short iMaxSockets;
     unsigned short iMaxUdpDg;
     Packed<char>   lpVendorInfo;
-    char           szDescription[WSADESCRIPTION_LEN + 1];
-    char           szSystemStatus[WSASYS_STATUS_LEN + 1];
 };
+static_assert(sizeof(WSADATA) == 400, "Winsock 1.1 guest layout");
+static_assert(offsetof(WSADATA, iMaxUdpDg) == 392, "Original game reads this offset");
 typedef WSADATA* LPWSADATA;
 struct hostent;
 
@@ -73,8 +69,8 @@ int getsockname(WinApplication* app, x86::CPU& cpu,
                 SOCKET s, sockaddr* name, int *namelen);
 int bind(WinApplication* app, x86::CPU& cpu,
          SOCKET s, const sockaddr* name, int namelen);
-unsigned short htons(WinApplication* app, x86::CPU& cpu, unsigned short hostshort);
-unsigned short ntohs(WinApplication* app, x86::CPU& cpu, unsigned short netshort);
+unsigned short (htons)(WinApplication* app, x86::CPU& cpu, unsigned short hostshort);
+unsigned short (ntohs)(WinApplication* app, x86::CPU& cpu, unsigned short netshort);
 unsigned long inet_addr(WinApplication* app, x86::CPU& cpu, const char *cp);
 Packed<char> inet_ntoa(WinApplication* app, x86::CPU& cpu, x86::reg32 in);
 int setsockopt(WinApplication* app, x86::CPU& cpu,

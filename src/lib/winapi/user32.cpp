@@ -347,6 +347,8 @@ int GetSystemMetrics(WinApplication* app, x86::CPU& cpu,
         return 800;
     case 1: //SM_CYSCREEN
         return 600;
+    case 63: // SM_NETWORK: the IPX compatibility transport is available.
+        return 1;
     default:
         NFS2_ASSERT(false);
         return 0;
